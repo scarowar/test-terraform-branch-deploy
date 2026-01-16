@@ -35,7 +35,7 @@ jobs:
       # - Hook runs BEFORE terraform execution
       # - branch-deploy handles ALL cleanup automatically
       - name: Terraform Branch Deploy
-        uses: scarowar/terraform-branch-deploy@refactor/core
+        uses: scarowar/terraform-branch-deploy@chore/remove-python-dep
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
