@@ -37,7 +37,7 @@ class TestLocking:
         # Unlock
         unlock_run = runner.post_and_wait(pr, ".unlock dev", timeout=180)
         runner.assert_workflow_success(unlock_run)
-        runner.assert_comment_contains(pr, "Lock Released")
+        runner.assert_comment_contains(pr, "Deployment Lock Removed")
 
     def test_deploy_while_locked_by_owner_succeeds(self, runner: E2ETestRunner) -> None:
         """
