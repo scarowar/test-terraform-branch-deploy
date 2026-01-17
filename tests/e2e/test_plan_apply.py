@@ -134,7 +134,7 @@ class TestApply:
         run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         
         runner.assert_workflow_failure(run)
-        runner.assert_comment_contains(pr, "Deployment Results ❌")
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
 
 
 @pytest.mark.e2e

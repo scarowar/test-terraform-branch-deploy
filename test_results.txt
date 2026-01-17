@@ -10,7 +10,7 @@ tests/e2e/test_failure_modes.py::TestFailureModes::test_apply_stale_plan_fails F
 
 =================================== FAILURES ===================================
 _________________ TestFailureModes.test_apply_stale_plan_fails _________________
-tests/e2e/test_failure_modes.py:68: in test_apply_stale_plan_fails
+tests/e2e/test_failure_modes.py:67: in test_apply_stale_plan_fails
     runner.assert_comment_contains(pr, "Deployment Results ❌")
 tests/e2e/runner.py:402: in assert_comment_contains
     raise AssertionError(msg)
@@ -18,7 +18,7 @@ E   AssertionError: Pattern 'Deployment Results ❌' not found in comment: ### �
 E   
 E   No plan file found for this commit.
 E   
-E   > You attempted to apply changes, but no saved plan exists for commit `b7078b20`.
+E   > You attempted to apply changes, but no saved plan exists for commit `ae11a7b3`.
 E   
 E   **How to fix:**
 E   1. Run `.plan to dev` to
@@ -27,8 +27,8 @@ FAILED tests/e2e/test_failure_modes.py::TestFailureModes::test_apply_stale_plan_
 
 No plan file found for this commit.
 
-> You attempted to apply changes, but no saved plan exists for commit `b7078b20`.
+> You attempted to apply changes, but no saved plan exists for commit `ae11a7b3`.
 
 **How to fix:**
 1. Run `.plan to dev` to
-========================= 1 failed in 91.11s (0:01:31) =========================
+======================== 1 failed in 102.15s (0:01:42) =========================
