@@ -134,7 +134,6 @@ class TestApply:
         run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         
         runner.assert_workflow_failure(run)
-        runner.assert_workflow_failure(run)
         runner.assert_comment_contains(pr, "Deployment Results ❌")
 
 

@@ -64,7 +64,6 @@ class TestFailureModes:
         apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         
         runner.assert_workflow_failure(apply_run)
-        runner.assert_workflow_failure(apply_run)
         runner.assert_comment_contains(pr, "Deployment Results ❌")
 
     def test_malformed_command_ignored(self, runner: E2ETestRunner) -> None:

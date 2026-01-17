@@ -1,0 +1,34 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0 -- /home/scarowar/dev/scarowar/test-terraform-branch-deploy/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/scarowar/dev/scarowar/test-terraform-branch-deploy
+configfile: pyproject.toml
+plugins: anyio-4.12.1
+collecting ... collected 1 item
+
+tests/e2e/test_failure_modes.py::TestFailureModes::test_apply_stale_plan_fails FAILED [100%]
+
+=================================== FAILURES ===================================
+_________________ TestFailureModes.test_apply_stale_plan_fails _________________
+tests/e2e/test_failure_modes.py:68: in test_apply_stale_plan_fails
+    runner.assert_comment_contains(pr, "Deployment Results ❌")
+tests/e2e/runner.py:402: in assert_comment_contains
+    raise AssertionError(msg)
+E   AssertionError: Pattern 'Deployment Results ❌' not found in comment: ### ⚠️ Cannot proceed with deployment
+E   
+E   No plan file found for this commit.
+E   
+E   > You attempted to apply changes, but no saved plan exists for commit `b7078b20`.
+E   
+E   **How to fix:**
+E   1. Run `.plan to dev` to
+=========================== short test summary info ============================
+FAILED tests/e2e/test_failure_modes.py::TestFailureModes::test_apply_stale_plan_fails - AssertionError: Pattern 'Deployment Results ❌' not found in comment: ### ⚠️ Cannot proceed with deployment
+
+No plan file found for this commit.
+
+> You attempted to apply changes, but no saved plan exists for commit `b7078b20`.
+
+**How to fix:**
+1. Run `.plan to dev` to
+========================= 1 failed in 91.11s (0:01:31) =========================
