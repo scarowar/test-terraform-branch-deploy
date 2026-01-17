@@ -33,7 +33,8 @@ class TestSmoke:
         run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
         
         runner.assert_workflow_success(run)
-        runner.assert_comment_contains(pr, "Terraform will perform")
+        # Check for the deployment results comment
+        runner.assert_comment_contains(pr, "Deployment Results")
 
     def test_help_command(self, runner: E2ETestRunner) -> None:
         """
