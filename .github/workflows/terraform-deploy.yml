@@ -3,6 +3,8 @@
 # Two-phase architecture:
 # - trigger: Parse PR comment, export TF_BD_* vars, STOP
 # - execute: Checkout, run terraform, complete lifecycle
+#
+# IMPORTANT: Checkout BEFORE trigger mode so config file exists
 
 name: Terraform Deploy
 
@@ -26,19 +28,41 @@ jobs:
     if: github.event.issue.pull_request
     runs-on: ubuntu-latest
     outputs:
-      continue: ${{ env.TF_BD_CONTINUE }}
-      environment: ${{ env.TF_BD_ENVIRONMENT }}
-      operation: ${{ env.TF_BD_OPERATION }}
-      sha: ${{ env.TF_BD_SHA }}
-      ref: ${{ env.TF_BD_REF }}
-      is_rollback: ${{ env.TF_BD_IS_ROLLBACK }}
+      continue: ${{ steps.branch-deploy.outputs.continue }}
+      environment: ${{ steps.branch-deploy.outputs.environment }}
+      operation: ${{ steps.derive.outputs.operation }}
+      sha: ${{ steps.branch-deploy.outputs.sha }}
+      ref: ${{ steps.branch-deploy.outputs.ref }}
+      is_rollback: ${{ steps.derive.outputs.is_rollback }}
+      noop: ${{ steps.branch-deploy.outputs.noop }}
 
     steps:
+      # CRITICAL: Checkout first so config file exists for tf-branch-deploy
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Trigger Mode
+        id: branch-deploy
         uses: scarowar/terraform-branch-deploy@architecture/v0.2.0-redesign
         with:
           mode: trigger
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive Operation
+        id: derive
+        if: steps.branch-deploy.outputs.continue == 'true'
+        run: |
+          if [[ "${{ steps.branch-deploy.outputs.noop }}" == "true" ]]; then
+            echo "operation=plan" >> $GITHUB_OUTPUT
+            echo "is_rollback=false" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.branch-deploy.outputs.ref }}" == "main" ]]; then
+            echo "operation=apply" >> $GITHUB_OUTPUT
+            echo "is_rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "operation=apply" >> $GITHUB_OUTPUT
+            echo "is_rollback=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
 
   execute:
     needs: trigger
@@ -62,7 +86,10 @@ jobs:
           mode: execute
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
+          TF_BD_CONTINUE: ${{ needs.trigger.outputs.continue }}
           TF_BD_ENVIRONMENT: ${{ needs.trigger.outputs.environment }}
           TF_BD_OPERATION: ${{ needs.trigger.outputs.operation }}
           TF_BD_SHA: ${{ needs.trigger.outputs.sha }}
+          TF_BD_REF: ${{ needs.trigger.outputs.ref }}
           TF_BD_IS_ROLLBACK: ${{ needs.trigger.outputs.is_rollback }}
+          TF_BD_NOOP: ${{ needs.trigger.outputs.noop }}
