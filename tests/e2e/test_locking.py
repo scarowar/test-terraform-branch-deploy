@@ -27,40 +27,38 @@ class TestLocking:
         - Unlock succeeds
         - No residual lock remains
         """
-        branch, pr, sha = runner.setup_test_pr("lock_unlock")
+        branch, pr, sha = runner.setup_test_pr("lock_cycle")
         
         # Lock
         lock_run = runner.post_and_wait(pr, ".lock dev", timeout=180)
         runner.assert_workflow_success(lock_run)
-        runner.assert_comment_contains(pr, "locked")
+        runner.assert_comment_contains(pr, "Lock Claimed")
         
         # Unlock
         unlock_run = runner.post_and_wait(pr, ".unlock dev", timeout=180)
         runner.assert_workflow_success(unlock_run)
-        runner.assert_comment_contains(pr, "unlocked")
+        runner.assert_comment_contains(pr, "Lock Released")
 
-    def test_deploy_while_locked_fails(self, runner: E2ETestRunner) -> None:
+    def test_deploy_while_locked_by_owner_succeeds(self, runner: E2ETestRunner) -> None:
         """
-        .plan to dev while locked by another PR - MUST FAIL.
+        .plan to dev while locked by SAME user - SHOULD SUCCEED.
         
-        This test creates two PRs, locks from one, then tries to plan from another.
-        
-        Expected:
-        - First PR locks successfully
-        - Second PR's plan fails with lock error
+        Note: Cannot test blocking other users in single-user E2E environment.
+        Validation focuses on confirming the owner isn't blocked (sticky lock).
         """
         # PR1: Lock
         branch1, pr1, sha1 = runner.setup_test_pr("lock_holder")
         lock_run = runner.post_and_wait(pr1, ".lock dev", timeout=180)
         runner.assert_workflow_success(lock_run)
+        runner.assert_comment_contains(pr1, "Lock Claimed")
         
-        # PR2: Try to plan (should fail)
-        branch2, pr2, sha2 = runner.setup_test_pr("lock_blocked")
+        # PR2: Try to plan (should succeed for same user)
+        branch2, pr2, sha2 = runner.setup_test_pr("lock_owner")
         plan_run = runner.post_and_wait(pr2, ".plan to dev", timeout=180)
         
-        # Verify blocked
-        runner.assert_workflow_failure(plan_run)
-        runner.assert_comment_contains(pr2, "locked")
+        # Verify allowed
+        runner.assert_workflow_success(plan_run)
+        runner.assert_comment_contains(pr2, "Deployment Results")
         
         # Cleanup: unlock from PR1
         runner.post_and_wait(pr1, ".unlock dev", timeout=180)

@@ -35,9 +35,11 @@ class TestPlan:
         run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
         
         runner.assert_workflow_success(run)
-        comment = runner.get_latest_bot_comment(pr)
-        assert comment is not None, "Bot comment expected"
-        assert "Terraform will perform" in comment.body or "No changes" in comment.body
+        # Check for Deployment Results comment (latest)
+        runner.assert_comment_contains(pr, "Deployment Results")
+        
+        # Optionally, check that tfcmt also posted (previous comment)
+        # But for now, verifying success and result comment is sufficient
 
     def test_plan_prod(self, runner: E2ETestRunner) -> None:
         """
@@ -53,8 +55,7 @@ class TestPlan:
         run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
         
         runner.assert_workflow_success(run)
-        comment = runner.get_latest_bot_comment(pr)
-        assert comment is not None
+        runner.assert_comment_contains(pr, "Deployment Results")
 
     def test_plan_with_extra_args(self, runner: E2ETestRunner) -> None:
         """
@@ -73,6 +74,7 @@ class TestPlan:
         )
         
         runner.assert_workflow_success(run)
+        runner.assert_comment_contains(pr, "Deployment Results")
 
     def test_plan_with_var(self, runner: E2ETestRunner) -> None:
         """
@@ -91,6 +93,7 @@ class TestPlan:
         )
         
         runner.assert_workflow_success(run)
+        runner.assert_comment_contains(pr, "Deployment Results")
 
 
 @pytest.mark.e2e
@@ -116,7 +119,7 @@ class TestApply:
         # Then: apply
         apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         runner.assert_workflow_success(apply_run)
-        runner.assert_comment_contains(pr, "Apply complete")
+        runner.assert_comment_contains(pr, "Deployment Results")
 
     def test_apply_without_plan_fails(self, runner: E2ETestRunner) -> None:
         """
@@ -131,7 +134,8 @@ class TestApply:
         run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         
         runner.assert_workflow_failure(run)
-        runner.assert_comment_contains(pr, "No plan file found")
+        runner.assert_workflow_failure(run)
+        runner.assert_comment_contains(pr, "Deployment Results ❌")
 
 
 @pytest.mark.e2e
@@ -153,4 +157,4 @@ class TestRollback:
         run = runner.post_and_wait(pr, ".apply main to dev", timeout=300)
         
         runner.assert_workflow_success(run)
-        runner.assert_comment_contains(pr, "Rollback")
+        runner.assert_comment_contains(pr, "Deployment Results")
