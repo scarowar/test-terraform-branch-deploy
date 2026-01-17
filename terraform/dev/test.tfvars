@@ -1,0 +1,2 @@
+# Test caching
+message = "caching"
