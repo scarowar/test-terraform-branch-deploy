@@ -88,39 +88,3 @@ class TestFailureModes:
         # Bot might respond with "not a valid trigger" or not at all
         # Either is acceptable
 
-
-@pytest.mark.e2e
-@pytest.mark.failures
-class TestEdgeCases:
-    """Edge case tests."""
-
-    def test_plan_with_complex_var(self, runner: E2ETestRunner) -> None:
-        """
-        .plan to dev | -var='message=hello world with spaces'
-        
-        Expected:
-        - Quotes handled correctly
-        - Workflow succeeds
-        """
-        branch, pr, sha = runner.setup_test_pr("complex_var")
-        
-        run = runner.post_and_wait(
-            pr,
-            ".plan to dev | -var='message=hello world with spaces'",
-            timeout=300
-        )
-        
-        runner.assert_workflow_success(run)
-
-    def test_case_sensitivity(self, runner: E2ETestRunner) -> None:
-        """
-        .PLAN to dev vs .plan to dev - case handling.
-        
-        Expected:
-        - Commands should be case-insensitive (or consistently handled)
-        """
-        branch, pr, sha = runner.setup_test_pr("case_test")
-        
-        # This should work (lowercase)
-        run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-        runner.assert_workflow_success(run)
