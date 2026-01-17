@@ -64,6 +64,9 @@ def get_artifact_tracker() -> TestArtifacts:
 def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest markers."""
     config.addinivalue_line("markers", "e2e: mark test as E2E (requires GitHub token)")
+    config.addinivalue_line("markers", "smoke: mark test as smoke (run first)")
+    config.addinivalue_line("markers", "core: mark test as core functionality")
+    config.addinivalue_line("markers", "failures: mark test as failure mode testing")
     config.addinivalue_line("markers", "slow: mark test as slow")
     config.addinivalue_line("markers", "chaos: mark test as chaos testing")
     config.addinivalue_line("markers", "vcr: mark test for VCR-style mock testing")

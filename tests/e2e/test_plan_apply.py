@@ -1,0 +1,156 @@
+"""
+Core Tests - Plan and Apply Workflows
+
+These tests validate the primary use cases:
+- Planning to environments
+- Applying after plan
+- Rollback scenarios
+
+Run with: pytest tests/e2e/test_plan_apply.py -v
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from tests.e2e.runner import E2ETestRunner
+
+
+@pytest.mark.e2e
+@pytest.mark.core
+class TestPlan:
+    """Plan operation tests."""
+
+    def test_plan_dev(self, runner: E2ETestRunner) -> None:
+        """
+        .plan to dev - standard plan to development.
+        
+        Expected:
+        - Workflow succeeds
+        - Bot posts plan output
+        - Plan shows changes (local_file resource)
+        """
+        branch, pr, sha = runner.setup_test_pr("plan_dev")
+        
+        run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        
+        runner.assert_workflow_success(run)
+        comment = runner.get_latest_bot_comment(pr)
+        assert comment is not None, "Bot comment expected"
+        assert "Terraform will perform" in comment.body or "No changes" in comment.body
+
+    def test_plan_prod(self, runner: E2ETestRunner) -> None:
+        """
+        .plan to prod - plan to production (should show warning).
+        
+        Expected:
+        - Workflow succeeds
+        - Bot posts plan output
+        - Production environment processed correctly
+        """
+        branch, pr, sha = runner.setup_test_pr("plan_prod")
+        
+        run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
+        
+        runner.assert_workflow_success(run)
+        comment = runner.get_latest_bot_comment(pr)
+        assert comment is not None
+
+    def test_plan_with_extra_args(self, runner: E2ETestRunner) -> None:
+        """
+        .plan to dev | -target=local_file.test
+        
+        Expected:
+        - Workflow succeeds
+        - -target is respected (plan only shows targeted resource)
+        """
+        branch, pr, sha = runner.setup_test_pr("plan_target")
+        
+        run = runner.post_and_wait(
+            pr, 
+            ".plan to dev | -target=local_file.test", 
+            timeout=300
+        )
+        
+        runner.assert_workflow_success(run)
+
+    def test_plan_with_var(self, runner: E2ETestRunner) -> None:
+        """
+        .plan to dev | -var='key=value'
+        
+        Expected:
+        - Workflow succeeds
+        - -var is passed correctly (quotes handled)
+        """
+        branch, pr, sha = runner.setup_test_pr("plan_var")
+        
+        run = runner.post_and_wait(
+            pr, 
+            ".plan to dev | -var='message=hello world'", 
+            timeout=300
+        )
+        
+        runner.assert_workflow_success(run)
+
+
+@pytest.mark.e2e
+@pytest.mark.core
+class TestApply:
+    """Apply operation tests."""
+
+    def test_apply_after_plan(self, runner: E2ETestRunner) -> None:
+        """
+        .plan to dev followed by .apply to dev
+        
+        Expected:
+        - Plan succeeds and creates plan file
+        - Apply finds plan file and applies it
+        - Both workflows succeed
+        """
+        branch, pr, sha = runner.setup_test_pr("apply_after_plan")
+        
+        # First: plan
+        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        runner.assert_workflow_success(plan_run)
+        
+        # Then: apply
+        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        runner.assert_workflow_success(apply_run)
+        runner.assert_comment_contains(pr, "Apply complete")
+
+    def test_apply_without_plan_fails(self, runner: E2ETestRunner) -> None:
+        """
+        .apply to dev without prior plan - MUST FAIL.
+        
+        Expected:
+        - Workflow fails
+        - Error message about missing plan file
+        """
+        branch, pr, sha = runner.setup_test_pr("apply_no_plan")
+        
+        run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        
+        runner.assert_workflow_failure(run)
+        runner.assert_comment_contains(pr, "No plan file found")
+
+
+@pytest.mark.e2e
+@pytest.mark.core
+class TestRollback:
+    """Rollback scenarios."""
+
+    def test_rollback_to_main(self, runner: E2ETestRunner) -> None:
+        """
+        .apply main to dev - rollback to stable branch.
+        
+        Expected:
+        - Workflow detects rollback command
+        - Applies from main branch directly (no plan file required)
+        - Workflow succeeds
+        """
+        branch, pr, sha = runner.setup_test_pr("rollback")
+        
+        run = runner.post_and_wait(pr, ".apply main to dev", timeout=300)
+        
+        runner.assert_workflow_success(run)
+        runner.assert_comment_contains(pr, "Rollback")

@@ -1,11 +1,10 @@
-# Advanced Deployment with Pre-Terraform Hook
+# terraform-branch-deploy v0.2.0 trigger/execute workflow
 #
-# This workflow shows how to do prep work (build lambdas, fetch secrets)
-# WITHIN the action, so branch-deploy handles cleanup automatically.
-#
-# No manual cleanup required! ✨
+# Two-phase architecture:
+# - trigger: Parse PR comment, export TF_BD_* vars, STOP
+# - execute: Checkout, run terraform, complete lifecycle
 
-name: "2️⃣ Advanced Deploy (With Hook)"
+name: Terraform Deploy
 
 on:
   issue_comment:
@@ -19,47 +18,51 @@ permissions:
   statuses: read
 
 concurrency:
-  group: terraform-advanced-${{ github.event.issue.number }}
+  group: terraform-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  trigger:
     if: github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ env.TF_BD_CONTINUE }}
+      environment: ${{ env.TF_BD_ENVIRONMENT }}
+      operation: ${{ env.TF_BD_OPERATION }}
+      sha: ${{ env.TF_BD_SHA }}
+      ref: ${{ env.TF_BD_REF }}
+      is_rollback: ${{ env.TF_BD_IS_ROLLBACK }}
+
+    steps:
+      - name: Trigger Mode
+        uses: scarowar/terraform-branch-deploy@architecture/v0.2.0-redesign
+        with:
+          mode: trigger
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  execute:
+    needs: trigger
+    if: needs.trigger.outputs.continue == 'true'
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      # Single action call with pre-terraform hook!
-      # - Hook runs AFTER branch-deploy parses command
-      # - Hook runs BEFORE terraform execution
-      # - branch-deploy handles ALL cleanup automatically
-      - name: Terraform Branch Deploy
-        uses: scarowar/terraform-branch-deploy@chore/remove-python-dep
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
+          ref: ${{ needs.trigger.outputs.ref }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Execute Mode
+        uses: scarowar/terraform-branch-deploy@architecture/v0.2.0-redesign
+        with:
+          mode: execute
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-          # Pre-terraform hook for prep work
-          # Environment variables available:
-          # - TF_BD_ENVIRONMENT (dev, prod, etc.)
-          # - TF_BD_SHA (commit being deployed)
-          # - TF_BD_OPERATION (plan or apply)
-          # - TF_BD_IS_NOOP (true for plan, false for apply)
-          pre-terraform-hook: |
-            echo "=== Pre-Terraform Hook ==="
-            echo "Environment: $TF_BD_ENVIRONMENT"
-            echo "SHA: $TF_BD_SHA"
-            echo "Operation: $TF_BD_OPERATION"
-
-            # Example: Build lambdas for this environment
-            # ./scripts/build-lambdas.sh --env $TF_BD_ENVIRONMENT
-
-            # Example: Fetch secrets for this environment
-            # aws secretsmanager get-secret-value --secret-id "myapp/$TF_BD_ENVIRONMENT/config"
-
-            # Example: Run database migrations (only on apply)
-            # if [ "$TF_BD_OPERATION" == "apply" ]; then
-            #   ./scripts/run-migrations.sh --env $TF_BD_ENVIRONMENT
-            # fi
-
-            echo "=== Hook Complete ==="
+        env:
+          TF_BD_ENVIRONMENT: ${{ needs.trigger.outputs.environment }}
+          TF_BD_OPERATION: ${{ needs.trigger.outputs.operation }}
+          TF_BD_SHA: ${{ needs.trigger.outputs.sha }}
+          TF_BD_IS_ROLLBACK: ${{ needs.trigger.outputs.is_rollback }}
