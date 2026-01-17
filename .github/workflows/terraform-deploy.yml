@@ -35,6 +35,11 @@ jobs:
       ref: ${{ steps.branch-deploy.outputs.ref }}
       is_rollback: ${{ steps.derive.outputs.is_rollback }}
       noop: ${{ steps.branch-deploy.outputs.noop }}
+      actor: ${{ steps.branch-deploy.outputs.actor }}
+      pr_number: ${{ steps.branch-deploy.outputs.issue_number }}
+      comment_id: ${{ steps.branch-deploy.outputs.comment_id }}
+      initial_reaction_id: ${{ steps.branch-deploy.outputs.initial_reaction_id }}
+      deployment_id: ${{ steps.branch-deploy.outputs.deployment_id }}
 
     steps:
       # CRITICAL: Checkout first so config file exists for tf-branch-deploy
@@ -93,3 +98,8 @@ jobs:
           TF_BD_REF: ${{ needs.trigger.outputs.ref }}
           TF_BD_IS_ROLLBACK: ${{ needs.trigger.outputs.is_rollback }}
           TF_BD_NOOP: ${{ needs.trigger.outputs.noop }}
+          TF_BD_ACTOR: ${{ needs.trigger.outputs.actor }}
+          TF_BD_PR_NUMBER: ${{ needs.trigger.outputs.pr_number }}
+          TF_BD_COMMENT_ID: ${{ needs.trigger.outputs.comment_id }}
+          TF_BD_INITIAL_REACTION_ID: ${{ needs.trigger.outputs.initial_reaction_id }}
+          TF_BD_DEPLOYMENT_ID: ${{ needs.trigger.outputs.deployment_id }}
