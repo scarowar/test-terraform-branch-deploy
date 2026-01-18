@@ -33,7 +33,7 @@ jobs:
 
       # 2. TRIGGER MODE - Parse command, export TF_BD_* to GITHUB_ENV
       - name: Trigger
-        uses: scarowar/terraform-branch-deploy@architecture/v0.2.0-redesign
+        uses: scarowar/terraform-branch-deploy@main
         with:
           mode: trigger
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -68,7 +68,7 @@ jobs:
       #    Picks up ALL env vars automatically (same job)
       - name: Execute
         if: env.TF_BD_CONTINUE == 'true'
-        uses: scarowar/terraform-branch-deploy@architecture/v0.2.0-redesign
+        uses: scarowar/terraform-branch-deploy@main
         with:
           mode: execute
           github-token: ${{ secrets.GITHUB_TOKEN }}
