@@ -49,6 +49,7 @@ class TestPlan:
         - Workflow succeeds
         - Bot posts plan output
         - Production environment processed correctly
+        - Warning about production environment shown
         """
         branch, pr, sha = runner.setup_test_pr("plan_prod")
         
@@ -56,6 +57,8 @@ class TestPlan:
         
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
+        # Ensure production warning is present
+        runner.assert_comment_contains(pr, "prod")
 
     def test_plan_with_extra_args(self, runner: E2ETestRunner) -> None:
         """
@@ -187,22 +190,7 @@ class TestPlanEdgeCases:
         runner.assert_workflow_success(plan_run2)
         # The output should indicate no changes or minimal changes
 
-    def test_production_warning_shown(self, runner: E2ETestRunner) -> None:
-        """
-        Production environment shows appropriate warnings.
-        
-        Risk: Production not flagged properly
-        Code Path: config.is_production(environment)
-        
-        Note: Different from test_plan_prod - this checks warning TEXT.
-        """
-        branch, pr, sha = runner.setup_test_pr("prod_warning")
-        
-        run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
-        runner.assert_workflow_success(run)
-        
-        # Production should be flagged - check comment contains "prod"
-        runner.assert_comment_contains(pr, "prod")
+
 
 
 @pytest.mark.e2e
