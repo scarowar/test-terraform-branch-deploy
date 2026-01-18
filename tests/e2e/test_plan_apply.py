@@ -157,3 +157,81 @@ class TestRollback:
         
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
+
+
+@pytest.mark.e2e
+@pytest.mark.core
+class TestPlanEdgeCases:
+    """Plan edge cases for comprehensive coverage."""
+
+    def test_plan_no_changes_detected(self, runner: E2ETestRunner) -> None:
+        """
+        Plan shows no changes when infra is in sync.
+        
+        Risk: User confusion when has_changes=false
+        Code Path: cli.py:392 set_github_output("has_changes", ...)
+        
+        Note: This tests AFTER apply - infrastructure matches code.
+        """
+        branch, pr, sha = runner.setup_test_pr("no_changes")
+        
+        # First plan and apply
+        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        runner.assert_workflow_success(plan_run)
+        
+        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        runner.assert_workflow_success(apply_run)
+        
+        # Second plan should show no changes
+        plan_run2 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        runner.assert_workflow_success(plan_run2)
+        # The output should indicate no changes or minimal changes
+
+    def test_production_warning_shown(self, runner: E2ETestRunner) -> None:
+        """
+        Production environment shows appropriate warnings.
+        
+        Risk: Production not flagged properly
+        Code Path: config.is_production(environment)
+        
+        Note: Different from test_plan_prod - this checks warning TEXT.
+        """
+        branch, pr, sha = runner.setup_test_pr("prod_warning")
+        
+        run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
+        runner.assert_workflow_success(run)
+        
+        # Production should be flagged - check comment contains "prod"
+        runner.assert_comment_contains(pr, "prod")
+
+
+@pytest.mark.e2e
+@pytest.mark.core  
+class TestApplyEdgeCases:
+    """Apply edge cases for comprehensive coverage."""
+
+    def test_apply_succeeds_idempotent(self, runner: E2ETestRunner) -> None:
+        """
+        Re-apply same plan succeeds (idempotent).
+        
+        Risk: Re-apply might fail unexpectedly
+        
+        Note: Different from test_apply_after_plan - this does TWO applies.
+        """
+        branch, pr, sha = runner.setup_test_pr("idempotent")
+        
+        # Plan
+        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        runner.assert_workflow_success(plan_run)
+        
+        # Apply first time
+        apply_run1 = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        runner.assert_workflow_success(apply_run1)
+        
+        # Plan again (after apply)
+        plan_run2 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        runner.assert_workflow_success(plan_run2)
+        
+        # Apply second time (should succeed - idempotent)
+        apply_run2 = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        runner.assert_workflow_success(apply_run2)

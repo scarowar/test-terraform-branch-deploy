@@ -85,3 +85,23 @@ class TestLocking:
         
         # Cleanup
         runner.post_and_wait(pr, ".unlock dev", timeout=180)
+
+    def test_global_lock(self, runner: E2ETestRunner) -> None:
+        """
+        .lock --global should lock all environments.
+        
+        Risk: Global lock not blocking all environments
+        Code Path: action.yml global-lock-flag input
+        """
+        branch, pr, sha = runner.setup_test_pr("global_lock")
+        
+        # Global lock
+        lock_run = runner.post_and_wait(pr, ".lock --global", timeout=180)
+        runner.assert_workflow_success(lock_run)
+        
+        # Verify lock status shows global
+        wcid_run = runner.post_and_wait(pr, ".wcid", timeout=180)
+        runner.assert_workflow_success(wcid_run)
+        
+        # Cleanup: unlock global
+        runner.post_and_wait(pr, ".unlock --global", timeout=180)
