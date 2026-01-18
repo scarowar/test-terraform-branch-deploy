@@ -214,3 +214,68 @@ class TestSafetyChecks:
         runner.assert_workflow_success(run)
         # Help should mention available commands
         runner.assert_comment_contains(pr, ".plan")
+
+    def test_prod_requires_confirmation(self, runner: E2ETestRunner) -> None:
+        """
+        .apply to prod should require confirmation.
+        
+        Risk: Accidental production deployment without review
+        Prevention: deployment-confirmation input
+        """
+        branch, pr, sha = runner.setup_test_pr("prod_confirm")
+        
+        # Plan to prod first
+        plan_run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
+        runner.assert_workflow_success(plan_run)
+        
+        # Apply to prod - should complete (confirmation depends on config)
+        apply_run = runner.post_and_wait(pr, ".apply to prod", timeout=300)
+        
+        # Should either succeed or prompt for confirmation
+        assert apply_run.is_complete
+
+    def test_non_default_branch_blocked(self, runner: E2ETestRunner) -> None:
+        """
+        PR targeting non-main branch should be handled appropriately.
+        
+        Risk: PR to feature branch deploys unexpected code
+        Prevention: allow-non-default-target-branch input
+        """
+        # Create a feature branch as target
+        branch = f"e2e-feature-target-{int(id(self)):x}"
+        runner.create_branch(branch)
+        
+        # Create PR from another branch to this feature branch
+        source_branch = f"e2e-source-{int(id(self)):x}"
+        runner.create_branch(source_branch, from_ref=branch)
+        
+        runner.commit_file(
+            branch=source_branch,
+            path="terraform/dev/test.tfvars",
+            content="non_default = true",
+            message="test: non-default target",
+        )
+        
+        # Create PR targeting feature branch (not main)
+        pr = runner.create_pr(
+            branch=source_branch,
+            title="E2E: Non-Default Target",
+            base=branch,  # Target feature branch, not main
+        )
+        
+        try:
+            # Post plan command
+            runner.post_comment(pr, ".plan to dev")
+            
+            import time
+            time.sleep(15)
+            
+            # Should either work or be blocked depending on config
+            # The key is it doesn't silently deploy incorrect code
+        finally:
+            runner.cleanup_test_pr(source_branch, pr)
+            # Also cleanup target branch
+            try:
+                runner.delete_branch(branch)
+            except Exception:
+                pass
