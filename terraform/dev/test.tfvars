@@ -1,0 +1,2 @@
+# Test idempotent
+message = "idempotent"
