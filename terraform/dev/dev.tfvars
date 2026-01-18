@@ -1,3 +1,2 @@
-# Dev environment variables
-environment = "dev"
-message     = "Development environment test"
+# Conflict content
+message = "conflict-1768754078.2256367"
