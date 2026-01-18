@@ -1,0 +1,2 @@
+# Test injection
+message = "injection"
