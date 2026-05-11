@@ -30,6 +30,10 @@ Stop on the first failing stage, inspect the workflow URL from the failure, fix 
 | `edge` | Lower-priority graceful handling scenarios |
 | `slow` | Longer-running or lower-frequency scenarios |
 
+Release-blocking apply safety includes both negative and positive checks:
+missing plans must fail, stale plans must fail, and plain apply after a targeted
+plan must use the saved targeted `.tfplan` file.
+
 Examples:
 
 ```bash

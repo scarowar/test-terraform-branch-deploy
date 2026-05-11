@@ -13,6 +13,18 @@ import pytest
 from tests.e2e.runner import E2ETestRunner
 
 
+@pytest.fixture(scope="module", autouse=True)
+def clear_existing_locks(runner: E2ETestRunner) -> None:
+    """Clear stale locks before asserting lock creation behavior."""
+    branch, pr, sha = runner.setup_test_pr("lock_preflight")
+    try:
+        for command in (".unlock dev", ".unlock --global"):
+            run = runner.post_and_wait(pr, command, timeout=180)
+            assert run.is_complete
+    finally:
+        runner.cleanup_test_pr(branch, pr)
+
+
 @pytest.mark.e2e
 @pytest.mark.core
 @pytest.mark.stateful

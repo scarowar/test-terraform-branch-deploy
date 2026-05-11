@@ -2,7 +2,7 @@
 
 E2E test repository for [terraform-branch-deploy](https://github.com/scarowar/terraform-branch-deploy) v0.2.0.
 
-> **Lean, high-signal E2E suite**: 21 E2E tests focused on deterministic release risks.
+> **Lean, high-signal E2E suite**: 22 E2E tests focused on deterministic release risks.
 
 ## Quick Start
 
@@ -34,12 +34,12 @@ uv run pytest -m slow -v      # Enterprise scenarios
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `test_plan_apply.py` | 6 | Plan, apply, rollback, extra args |
+| `test_plan_apply.py` | 7 | Plan, apply, rollback, saved targeted plans |
 | `test_locking.py` | 4 | Lock, unlock, wcid, global lock |
 | `test_failure_modes.py` | 6 | Invalid env, stale plan, TF errors, safety checks |
 | `test_branching.py` | 1 | PR lifecycle |
 | `test_enterprise.py` | 4 | Recovery, multi-env, argument parsing |
-| **TOTAL** | **21** | **Deterministic release coverage** |
+| **TOTAL** | **22** | **Deterministic release coverage** |
 
 Additional local release-contract checks verify that the E2E workflow tests a pinned candidate action ref instead of a floating branch.
 
@@ -53,6 +53,7 @@ Additional local release-contract checks verify that the E2E workflow tests a pi
 | `test_plan_dev` | Basic plan → executor.plan() |
 | `test_plan_prod` | Production env handling |
 | `test_apply_after_plan` | Plan → apply flow |
+| `test_apply_after_targeted_plan_uses_saved_target_plan` | Targeted plan → plain apply safety |
 | `test_apply_without_plan_fails` | Missing plan detection |
 | `test_rollback_to_main` | Rollback bypasses plan |
 | `test_plan_with_var` | `-var` parsing |

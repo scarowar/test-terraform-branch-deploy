@@ -108,6 +108,36 @@ class TestApply:
         runner.assert_apply_used_plan(apply_run.id, f"tfplan-dev-{sha[:8]}.tfplan")
 
     @pytest.mark.critical
+    def test_apply_after_targeted_plan_uses_saved_target_plan(
+        self, runner: E2ETestRunner
+    ) -> None:
+        """
+        .plan to dev | -target=... followed by plain .apply to dev.
+
+        Expected:
+        - Plan succeeds with the target argument
+        - Plain apply uses the saved targeted plan file
+        - Apply does not run a fresh untargeted terraform apply
+        """
+        branch, pr, sha = runner.setup_test_pr("apply_targeted_plan")
+
+        plan_run = runner.post_and_wait(
+            pr,
+            ".plan to dev | -target=local_file.test",
+            timeout=300,
+        )
+        runner.assert_workflow_success(plan_run)
+        runner.assert_logs_contain(plan_run.id, "-target=local_file.test")
+
+        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        runner.assert_workflow_success(apply_run)
+        runner.assert_apply_used_plan(apply_run.id, f"tfplan-dev-{sha[:8]}.tfplan")
+        runner.assert_logs_contain(
+            apply_run.id,
+            "Plan was created with args: -target=local_file.test",
+        )
+
+    @pytest.mark.critical
     def test_apply_without_plan_fails(self, runner: E2ETestRunner) -> None:
         """
         .apply to dev without prior plan - MUST FAIL.
