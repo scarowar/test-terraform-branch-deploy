@@ -19,27 +19,7 @@ from tests.e2e.runner import E2ETestRunner
 
 @pytest.mark.e2e
 @pytest.mark.slow
-class TestConcurrency:
-    """Test race condition handling for medium-large teams."""
-
-    def test_concurrent_plans_handled_safely(self, runner: E2ETestRunner) -> None:
-        """Test rapid plan commands don't cause race conditions.
-        
-        Risk: Multiple team members posting .plan simultaneously
-        """
-        branch, pr, sha = runner.setup_test_pr("concurrent")
-        
-        # Post multiple commands rapidly
-        runner.post_comment(pr, ".plan to dev")
-        runner.post_comment(pr, ".plan to dev")
-        
-        # Should complete without errors (one may be skipped)
-        run = runner.wait_for_workflow(timeout=300)
-        assert run.is_complete
-
-
-@pytest.mark.e2e
-@pytest.mark.slow
+@pytest.mark.edge
 class TestRecovery:
     """Test recovery from failure states."""
 
@@ -72,7 +52,8 @@ class TestRecovery:
         try:
             # First plan should fail
             run1 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-            assert run1.is_failure or run1.is_complete
+            runner.assert_workflow_failure(run1)
+            runner.assert_comment_contains(pr, "Cannot proceed with deployment")
             
             # Fix the error
             runner.commit_file(
@@ -90,6 +71,7 @@ class TestRecovery:
 
 
 @pytest.mark.e2e
+@pytest.mark.core
 class TestMultiEnvironment:
     """Test multi-environment deployment workflows."""
 
@@ -110,26 +92,9 @@ class TestMultiEnvironment:
 
 
 @pytest.mark.e2e
+@pytest.mark.args
 class TestComplexParsing:
     """Test complex argument parsing edge cases."""
-
-    def test_var_with_json_value(self, runner: E2ETestRunner) -> None:
-        """Test -var with JSON value containing special chars.
-        
-        Risk: Enterprise configs often have complex vars
-        Note: JSON vars require proper escaping
-        """
-        branch, pr, sha = runner.setup_test_pr("json_var")
-        
-        # Use simpler var syntax that works with shell
-        run = runner.post_and_wait(
-            pr,
-            ".plan to dev | -var='message=json_test'",
-            timeout=300
-        )
-        
-        # Workflow should complete (may succeed or fail based on TF config)
-        assert run.is_complete
 
     def test_var_with_equals_in_value(self, runner: E2ETestRunner) -> None:
         """Test -var with equals sign in value.
@@ -141,35 +106,25 @@ class TestComplexParsing:
         # Simple string with equals - avoid complex shell escaping
         run = runner.post_and_wait(
             pr,
-            ".plan to dev | -var='message=test_value'",
+            ".plan to dev | -var='connection_string=postgres://user:p@host/db?sslmode=require&x=y'",
             timeout=300
         )
         
-        # Workflow should complete
-        assert run.is_complete
+        runner.assert_workflow_success(run)
+        runner.assert_comment_contains(pr, "Deployment Results")
 
-    def test_target_with_indexed_resource(self, runner: E2ETestRunner) -> None:
-        """Test -target with indexed resource.
+    def test_target_resource_arg(self, runner: E2ETestRunner) -> None:
+        """Test -target for an existing resource.
         
-        Risk: Enterprise modules use count/for_each
+        Risk: Terraform target arguments must be forwarded without shell parsing.
         """
-        branch, pr, sha = runner.setup_test_pr("indexed_target")
+        branch, pr, sha = runner.setup_test_pr("target_arg")
         
-        # Use simple target that exists in test config
         run = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
             timeout=300
         )
         
-        # Should complete successfully
         runner.assert_workflow_success(run)
-
-
-
-@pytest.mark.e2e
-@pytest.mark.slow
-class TestRollbackFailures:
-    """Test rollback failure scenarios."""
-
-
+        runner.assert_logs_contain(run.id, "-target=local_file.test")

@@ -60,25 +60,7 @@ class TestPlan:
         # Ensure production warning is present
         runner.assert_comment_contains(pr, "prod")
 
-    def test_plan_with_extra_args(self, runner: E2ETestRunner) -> None:
-        """
-        .plan to dev | -target=local_file.test
-        
-        Expected:
-        - Workflow succeeds
-        - -target is respected (plan only shows targeted resource)
-        """
-        branch, pr, sha = runner.setup_test_pr("plan_target")
-        
-        run = runner.post_and_wait(
-            pr, 
-            ".plan to dev | -target=local_file.test", 
-            timeout=300
-        )
-        
-        runner.assert_workflow_success(run)
-        runner.assert_comment_contains(pr, "Deployment Results")
-
+    @pytest.mark.args
     def test_plan_with_var(self, runner: E2ETestRunner) -> None:
         """
         .plan to dev | -var='key=value'
@@ -123,7 +105,9 @@ class TestApply:
         apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         runner.assert_workflow_success(apply_run)
         runner.assert_comment_contains(pr, "Deployment Results")
+        runner.assert_apply_used_plan(apply_run.id, f"tfplan-dev-{sha[:8]}.tfplan")
 
+    @pytest.mark.critical
     def test_apply_without_plan_fails(self, runner: E2ETestRunner) -> None:
         """
         .apply to dev without prior plan - MUST FAIL.
@@ -138,6 +122,8 @@ class TestApply:
         
         runner.assert_workflow_failure(run)
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
+        runner.assert_logs_contain(run.id, "No plan file found")
+        runner.assert_no_direct_apply_without_plan(run.id)
 
 
 @pytest.mark.e2e
@@ -160,66 +146,3 @@ class TestRollback:
         
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
-
-
-@pytest.mark.e2e
-@pytest.mark.core
-class TestPlanEdgeCases:
-    """Plan edge cases for comprehensive coverage."""
-
-    def test_plan_no_changes_detected(self, runner: E2ETestRunner) -> None:
-        """
-        Plan shows no changes when infra is in sync.
-        
-        Risk: User confusion when has_changes=false
-        Code Path: cli.py:392 set_github_output("has_changes", ...)
-        
-        Note: This tests AFTER apply - infrastructure matches code.
-        """
-        branch, pr, sha = runner.setup_test_pr("no_changes")
-        
-        # First plan and apply
-        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-        runner.assert_workflow_success(plan_run)
-        
-        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
-        runner.assert_workflow_success(apply_run)
-        
-        # Second plan should show no changes
-        plan_run2 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-        runner.assert_workflow_success(plan_run2)
-        # The output should indicate no changes or minimal changes
-
-
-
-
-@pytest.mark.e2e
-@pytest.mark.core  
-class TestApplyEdgeCases:
-    """Apply edge cases for comprehensive coverage."""
-
-    def test_apply_succeeds_idempotent(self, runner: E2ETestRunner) -> None:
-        """
-        Re-apply same plan succeeds (idempotent).
-        
-        Risk: Re-apply might fail unexpectedly
-        
-        Note: Different from test_apply_after_plan - this does TWO applies.
-        """
-        branch, pr, sha = runner.setup_test_pr("idempotent")
-        
-        # Plan
-        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-        runner.assert_workflow_success(plan_run)
-        
-        # Apply first time
-        apply_run1 = runner.post_and_wait(pr, ".apply to dev", timeout=300)
-        runner.assert_workflow_success(apply_run1)
-        
-        # Plan again (after apply)
-        plan_run2 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-        runner.assert_workflow_success(plan_run2)
-        
-        # Apply second time (should succeed - idempotent)
-        apply_run2 = runner.post_and_wait(pr, ".apply to dev", timeout=300)
-        runner.assert_workflow_success(apply_run2)

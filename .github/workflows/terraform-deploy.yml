@@ -31,9 +31,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve terraform-branch-deploy ref
+        id: tfbd-ref
+        shell: bash
+        env:
+          TF_BRANCH_DEPLOY_REF: ${{ vars.TF_BRANCH_DEPLOY_REF }}
+        run: |
+          ref="${TF_BRANCH_DEPLOY_REF}"
+          if [ -z "$ref" ]; then
+            ref="$(tr -d '[:space:]' < .github/terraform-branch-deploy-ref)"
+          fi
+
+          if [ -z "$ref" ] || [ "$ref" = "main" ]; then
+            echo "::error::Set TF_BRANCH_DEPLOY_REF or .github/terraform-branch-deploy-ref to a release tag or commit SHA"
+            exit 1
+          fi
+
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout terraform-branch-deploy candidate
+        uses: actions/checkout@v4
+        with:
+          repository: scarowar/terraform-branch-deploy
+          ref: ${{ steps.tfbd-ref.outputs.ref }}
+          path: .terraform-branch-deploy-action
+
       # 2. TRIGGER MODE - Parse command, export TF_BD_* to GITHUB_ENV
       - name: Trigger
-        uses: scarowar/terraform-branch-deploy@main
+        uses: ./.terraform-branch-deploy-action
         with:
           mode: trigger
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -64,11 +89,19 @@ jobs:
         with:
           ref: ${{ env.TF_BD_REF }}
 
+      - name: Checkout terraform-branch-deploy candidate for execute
+        if: env.TF_BD_CONTINUE == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: scarowar/terraform-branch-deploy
+          ref: ${{ steps.tfbd-ref.outputs.ref }}
+          path: .terraform-branch-deploy-action
+
       # 4. EXECUTE MODE - Run terraform, complete lifecycle
       #    Picks up ALL env vars automatically (same job)
       - name: Execute
         if: env.TF_BD_CONTINUE == 'true'
-        uses: scarowar/terraform-branch-deploy@main
+        uses: ./.terraform-branch-deploy-action
         with:
           mode: execute
           github-token: ${{ secrets.GITHUB_TOKEN }}

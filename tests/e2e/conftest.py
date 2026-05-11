@@ -15,9 +15,6 @@ from tests.e2e.runner import E2ETestRunner
 # CONFIGURATION
 # =============================================================================
 
-# Set to True to enable VCR-style mock testing (replay recorded responses)
-E2E_USE_MOCKS = os.environ.get("E2E_USE_MOCKS", "false").lower() == "true"
-
 # Set to True to force cleanup even if test passes
 E2E_FORCE_CLEANUP = os.environ.get("E2E_FORCE_CLEANUP", "true").lower() == "true"
 
@@ -65,11 +62,15 @@ def pytest_configure(config: pytest.Config) -> None:
     """Configure pytest markers."""
     config.addinivalue_line("markers", "e2e: mark test as E2E (requires GitHub token)")
     config.addinivalue_line("markers", "smoke: mark test as smoke (run first)")
+    config.addinivalue_line("markers", "critical: release-blocking safety scenarios")
     config.addinivalue_line("markers", "core: mark test as core functionality")
+    config.addinivalue_line("markers", "stateful: lock, lifecycle, or persistent state scenarios")
+    config.addinivalue_line("markers", "args: Terraform extra argument and parsing scenarios")
+    config.addinivalue_line("markers", "edge: lower-priority edge cases")
     config.addinivalue_line("markers", "failures: mark test as failure mode testing")
     config.addinivalue_line("markers", "slow: mark test as slow")
     config.addinivalue_line("markers", "chaos: mark test as chaos testing")
-    config.addinivalue_line("markers", "vcr: mark test for VCR-style mock testing")
+    config.addinivalue_line("markers", "mocked: local mocked tests that do not call GitHub")
 
 
 def pytest_collection_modifyitems(
@@ -77,8 +78,8 @@ def pytest_collection_modifyitems(
     items: list[pytest.Item],
 ) -> None:
     """Skip E2E tests if no GitHub token is available."""
-    if not os.environ.get("GITHUB_TOKEN") and not E2E_USE_MOCKS:
-        skip_e2e = pytest.mark.skip(reason="GITHUB_TOKEN not set (set E2E_USE_MOCKS=true for mock testing)")
+    if not os.environ.get("GITHUB_TOKEN"):
+        skip_e2e = pytest.mark.skip(reason="GITHUB_TOKEN not set")
         for item in items:
             if "e2e" in item.keywords:
                 item.add_marker(skip_e2e)
@@ -152,21 +153,3 @@ def cleanup_test_artifacts(runner: E2ETestRunner, request: pytest.FixtureRequest
 def artifacts() -> TestArtifacts:
     """Provide access to the artifact tracker for tests."""
     return _artifacts
-
-
-# =============================================================================
-# VCR/MOCK TESTING (Future Enhancement)
-# =============================================================================
-
-# To enable VCR-style testing, install pytest-vcr and add:
-#
-# @pytest.fixture(scope="module")
-# def vcr_config():
-#     return {
-#         "cassette_library_dir": "tests/e2e/cassettes",
-#         "record_mode": "once",  # or "none" for pure playback
-#         "match_on": ["method", "scheme", "host", "port", "path", "query"],
-#         "filter_headers": ["authorization"],
-#     }
-#
-# Then mark tests with @pytest.mark.vcr()

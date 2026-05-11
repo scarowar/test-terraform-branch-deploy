@@ -20,6 +20,12 @@ pythonpath = ["."]
 addopts = "-v --tb=short"
 markers = [
     "e2e: mark test as E2E (requires GitHub token)",
+    "critical: release-blocking safety scenarios",
+    "core: mark test as core functionality",
+    "stateful: lock, lifecycle, or persistent state scenarios",
+    "args: Terraform extra argument and parsing scenarios",
+    "edge: lower-priority edge cases and graceful handling scenarios",
     "slow: mark test as slow",
     "chaos: mark test as chaos testing",
+    "mocked: local mocked tests that do not call GitHub",
 ]

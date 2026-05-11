@@ -15,6 +15,7 @@ from tests.e2e.runner import E2ETestRunner
 
 @pytest.mark.e2e
 @pytest.mark.core
+@pytest.mark.stateful
 class TestLocking:
     """Environment locking tests."""
 
@@ -78,7 +79,9 @@ class TestLocking:
         runner.assert_workflow_success(wcid_run)
         
         # Lock and check again
-        runner.post_and_wait(pr, ".lock dev", timeout=180)
+        lock_run = runner.post_and_wait(pr, ".lock dev", timeout=180)
+        runner.assert_workflow_success(lock_run)
+        runner.assert_comment_contains(pr, "Lock Claimed")
         wcid_run2 = runner.post_and_wait(pr, ".wcid", timeout=180)
         runner.assert_workflow_success(wcid_run2)
         runner.assert_comment_contains(pr, "dev")
@@ -98,10 +101,12 @@ class TestLocking:
         # Global lock
         lock_run = runner.post_and_wait(pr, ".lock --global", timeout=180)
         runner.assert_workflow_success(lock_run)
+        runner.assert_comment_contains(pr, "Lock Claimed")
         
         # Verify lock status shows global
         wcid_run = runner.post_and_wait(pr, ".wcid", timeout=180)
         runner.assert_workflow_success(wcid_run)
+        runner.assert_comment_contains(pr, "(?i)global")
         
         # Cleanup: unlock global
         runner.post_and_wait(pr, ".unlock --global", timeout=180)

@@ -13,10 +13,22 @@ from __future__ import annotations
 import os
 import re
 import time
+import zipfile
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Any
 
 import httpx
+
+
+E2E_COMMIT_AUTHOR_NAME = os.environ.get(
+    "E2E_COMMIT_AUTHOR_NAME",
+    "terraform-branch-deploy-e2e",
+)
+E2E_COMMIT_AUTHOR_EMAIL = os.environ.get(
+    "E2E_COMMIT_AUTHOR_EMAIL",
+    "terraform-branch-deploy-e2e@example.invalid",
+)
 
 
 @dataclass
@@ -74,6 +86,7 @@ class E2ETestRunner:
         repo: str = "scarowar/test-terraform-branch-deploy",
         token: str | None = None,
         base_branch: str = "main",
+        transport: httpx.BaseTransport | None = None,
     ):
         self.repo = repo
         self.token = token or os.environ.get("GITHUB_TOKEN")
@@ -91,6 +104,7 @@ class E2ETestRunner:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=30.0,
+            transport=transport,
         )
 
     def close(self) -> None:
@@ -155,6 +169,14 @@ class E2ETestRunner:
             "message": message,
             "content": encoded,
             "branch": branch,
+            "author": {
+                "name": E2E_COMMIT_AUTHOR_NAME,
+                "email": E2E_COMMIT_AUTHOR_EMAIL,
+            },
+            "committer": {
+                "name": E2E_COMMIT_AUTHOR_NAME,
+                "email": E2E_COMMIT_AUTHOR_EMAIL,
+            },
         }
         if existing_sha:
             data["sha"] = existing_sha
@@ -361,16 +383,70 @@ class E2ETestRunner:
             msg += f" (run_id: {target_run_id})"
         raise TimeoutError(msg)
 
+    def assert_no_workflow_after(
+        self,
+        after_timestamp: str,
+        timeout: int = 20,
+        poll_interval: int = 5,
+    ) -> None:
+        """Assert that no issue_comment workflow starts after a timestamp."""
+        from datetime import datetime
+
+        after_dt = datetime.fromisoformat(after_timestamp.replace("Z", "+00:00"))
+        start = time.time()
+
+        while time.time() - start < timeout:
+            for run in self.get_workflow_runs(per_page=20):
+                created = datetime.fromisoformat(run.created_at.replace("Z", "+00:00"))
+                if created > after_dt:
+                    raise AssertionError(
+                        f"Unexpected workflow triggered: {run.html_url}"
+                    )
+            time.sleep(poll_interval)
+
     def get_workflow_logs(self, run_id: int) -> str:
         """Get workflow run logs as text."""
         resp = self.client.get(
             f"/repos/{self.repo}/actions/runs/{run_id}/logs",
             follow_redirects=True,
         )
-        if resp.status_code == 200:
-            # Logs come as a zip file, return raw for now
-            return f"[Logs available at workflow run {run_id}]"
-        return ""
+        if resp.status_code != 200:
+            return ""
+
+        try:
+            with zipfile.ZipFile(BytesIO(resp.content)) as logs_zip:
+                chunks = []
+                for name in sorted(logs_zip.namelist()):
+                    if name.endswith("/"):
+                        continue
+                    content = logs_zip.read(name).decode("utf-8", errors="replace")
+                    chunks.append(f"===== {name} =====\n{content}")
+                return "\n".join(chunks)
+        except zipfile.BadZipFile:
+            return resp.text
+
+    def assert_logs_contain(self, run_id: int, pattern: str) -> str:
+        """Assert that workflow logs contain a string or regex pattern."""
+        logs = self.get_workflow_logs(run_id)
+        if pattern not in logs and not re.search(pattern, logs):
+            raise AssertionError(f"Pattern '{pattern}' not found in workflow logs")
+        return logs
+
+    def assert_no_direct_apply_without_plan(self, run_id: int) -> str:
+        """Assert terraform apply was not run without a saved plan file."""
+        logs = self.get_workflow_logs(run_id)
+        for line in logs.splitlines():
+            if "terraform apply" not in line or "-auto-approve" not in line:
+                continue
+            if ".tfplan" not in line:
+                raise AssertionError(f"Unsafe direct terraform apply found: {line}")
+        return logs
+
+    def assert_apply_used_plan(self, run_id: int, plan_filename: str) -> str:
+        """Assert terraform apply used the expected saved plan."""
+        logs = self.assert_logs_contain(run_id, plan_filename)
+        self.assert_no_direct_apply_without_plan(run_id)
+        return logs
 
     # === Assertions ===
 
