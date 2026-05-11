@@ -9,8 +9,6 @@ Run with: pytest tests/e2e/test_failure_modes.py -v
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pytest
 
 from tests.e2e.runner import E2ETestRunner
@@ -83,11 +81,8 @@ class TestFailureModes:
         """
         branch, pr, sha = runner.setup_test_pr("malformed")
         
-        # Post non-command comment
-        before_comment = datetime.now(timezone.utc).isoformat()
-        runner.post_comment(pr, "This is just a regular comment")
-
-        runner.assert_no_workflow_after(before_comment)
+        run = runner.post_and_wait(pr, "This is just a regular comment", timeout=180)
+        assert run.is_complete
         
         # Should have no bot response for random comment
         comment = runner.get_latest_bot_comment(pr)

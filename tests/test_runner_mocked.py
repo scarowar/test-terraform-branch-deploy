@@ -149,34 +149,6 @@ def test_wait_for_workflow_times_out_without_matching_run() -> None:
 
 
 @pytest.mark.mocked
-def test_assert_no_workflow_after_ignores_older_runs() -> None:
-    """No-workflow assertions should ignore runs created before the comment."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/actions/runs":
-            return response(
-                request,
-                200,
-                {
-                    "workflow_runs": [
-                        workflow_run(
-                            run_id=77,
-                            created_at="2026-01-01T00:00:00Z",
-                        )
-                    ]
-                },
-            )
-        raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
-
-    with E2ETestRunner(token="token", transport=httpx.MockTransport(handler)) as runner:
-        runner.assert_no_workflow_after(
-            "2026-01-01T00:01:00+00:00",
-            timeout=0.01,
-            poll_interval=0.01,
-        )
-
-
-@pytest.mark.mocked
 def test_cleanup_helpers_close_pr_and_ignore_missing_branch() -> None:
     """Cleanup helpers should close PRs and tolerate already-deleted branches."""
     calls: list[tuple[str, str]] = []

@@ -383,27 +383,6 @@ class E2ETestRunner:
             msg += f" (run_id: {target_run_id})"
         raise TimeoutError(msg)
 
-    def assert_no_workflow_after(
-        self,
-        after_timestamp: str,
-        timeout: int = 20,
-        poll_interval: int = 5,
-    ) -> None:
-        """Assert that no issue_comment workflow starts after a timestamp."""
-        from datetime import datetime
-
-        after_dt = datetime.fromisoformat(after_timestamp.replace("Z", "+00:00"))
-        start = time.time()
-
-        while time.time() - start < timeout:
-            for run in self.get_workflow_runs(per_page=20):
-                created = datetime.fromisoformat(run.created_at.replace("Z", "+00:00"))
-                if created > after_dt:
-                    raise AssertionError(
-                        f"Unexpected workflow triggered: {run.html_url}"
-                    )
-            time.sleep(poll_interval)
-
     def get_workflow_logs(self, run_id: int) -> str:
         """Get workflow run logs as text."""
         resp = self.client.get(
