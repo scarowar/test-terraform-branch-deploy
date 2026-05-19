@@ -5,6 +5,7 @@
 # environment variables persist automatically via GITHUB_ENV.
 
 name: Terraform Deploy
+run-name: "TBD #${{ github.event.issue.number }} comment ${{ github.event.comment.id }}"
 
 on:
   issue_comment:
@@ -29,7 +30,7 @@ jobs:
     steps:
       # 1. Checkout first (so config file exists)
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Resolve terraform-branch-deploy ref
         id: tfbd-ref
@@ -47,10 +48,28 @@ jobs:
             exit 1
           fi
 
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          delimiter="TFBD_ref_$(date +%s%N)_${RANDOM}"
+          while [[ "$ref" == *"$delimiter"* ]]; do
+            delimiter="TFBD_ref_$(date +%s%N)_${RANDOM}"
+          done
+          {
+            printf 'ref<<%s\n' "$delimiter"
+            printf '%s\n' "$ref"
+            printf '%s\n' "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate terraform-branch-deploy ref
+        shell: bash
+        env:
+          TFBD_REF: ${{ steps.tfbd-ref.outputs.ref }}
+        run: |
+          if ! [[ "${TFBD_REF}" =~ ^v[0-9]+(\.[0-9]+){0,2}$ || "${TFBD_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::TF_BRANCH_DEPLOY_REF must be a release tag or full commit SHA"
+            exit 1
+          fi
 
       - name: Checkout terraform-branch-deploy candidate
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: scarowar/terraform-branch-deploy
           ref: ${{ steps.tfbd-ref.outputs.ref }}
@@ -85,13 +104,13 @@ jobs:
       # 3. Checkout the correct ref (PR branch)
       - name: Checkout PR Branch
         if: env.TF_BD_CONTINUE == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.TF_BD_REF }}
 
       - name: Checkout terraform-branch-deploy candidate for execute
         if: env.TF_BD_CONTINUE == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: scarowar/terraform-branch-deploy
           ref: ${{ steps.tfbd-ref.outputs.ref }}

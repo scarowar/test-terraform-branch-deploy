@@ -9,6 +9,8 @@ Run with: pytest tests/e2e/test_failure_modes.py -v
 
 from __future__ import annotations
 
+from textwrap import dedent
+
 import pytest
 
 from tests.e2e.runner import E2ETestRunner
@@ -69,6 +71,57 @@ class TestFailureModes:
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
         runner.assert_logs_contain(apply_run.id, "No plan file found")
         runner.assert_no_direct_apply_without_plan(apply_run.id)
+
+    @pytest.mark.critical
+    @pytest.mark.args
+    def test_apply_args_target_in_config_fails_before_init(
+        self, runner: E2ETestRunner
+    ) -> None:
+        """
+        Configured apply-args must not be allowed to turn apply into a target apply.
+
+        Scenario:
+        1. PR changes `.tf-branch-deploy.yml` to add apply-args `-target=...`.
+        2. `.plan to dev` starts execute mode from the PR branch config.
+        3. CLI rejects the unsafe apply-args before Terraform init.
+        """
+        branch, pr, sha = runner.setup_test_pr("config_apply_target")
+
+        runner.commit_file(
+            branch=branch,
+            path=".tf-branch-deploy.yml",
+            content=dedent("""
+                default-environment: dev
+                production-environments:
+                  - prod
+                stable-branch: main
+                defaults:
+                  apply-args:
+                    args:
+                      - "-target=local_file.test"
+                environments:
+                  dev:
+                    working-directory: ./terraform/dev
+                    var-files:
+                      paths:
+                        - ../common.tfvars
+                        - dev.tfvars
+                  prod:
+                    working-directory: ./terraform/prod
+                    var-files:
+                      paths:
+                        - ../common.tfvars
+                        - prod.tfvars
+            """).lstrip(),
+            message="test: add unsafe apply target config",
+        )
+
+        run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+
+        runner.assert_workflow_failure(run)
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
+        runner.assert_logs_contain(run.id, "Unsupported apply-args arg: -target")
+        runner.assert_logs_do_not_contain(run.id, "$ terraform init")
 
     @pytest.mark.edge
     def test_malformed_command_ignored(self, runner: E2ETestRunner) -> None:
@@ -132,6 +185,7 @@ class TestTerraformErrors:
             runner.assert_workflow_failure(run)
             runner.assert_comment_contains(pr, "Cannot proceed with deployment")
             runner.assert_no_direct_apply_without_plan(run.id)
+            runner.assert_no_lock_ref("dev")
         finally:
             runner.cleanup_test_pr(branch, pr)
 

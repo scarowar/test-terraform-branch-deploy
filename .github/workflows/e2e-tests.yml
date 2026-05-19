@@ -18,36 +18,36 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - name: Checkout test repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@4f41a90a1f38628c7ccc608d05fbafe701bc20ae # v5.3.0
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
 
       - name: Install dependencies
         run: uv sync --dev
 
       - name: Run E2E Tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.E2E_PAT }}
+          TEST_FILTER: ${{ github.event.inputs.test_filter }}
         run: |
-          if [ -n "${{ github.event.inputs.test_filter }}" ]; then
-            uv run pytest tests/e2e/ -v --tb=long -k "${{ github.event.inputs.test_filter }}"
+          if [ -n "${TEST_FILTER}" ]; then
+            uv run pytest tests/e2e/ -v --tb=long -k "${TEST_FILTER}"
           else
             uv run pytest tests/e2e/ -v --tb=long
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.E2E_PAT }}
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-test-results
           path: |

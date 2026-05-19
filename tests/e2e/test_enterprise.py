@@ -12,6 +12,8 @@ Run with: pytest tests/e2e/test_enterprise.py -v
 
 from __future__ import annotations
 
+from textwrap import dedent
+
 import pytest
 
 from tests.e2e.runner import E2ETestRunner
@@ -113,18 +115,48 @@ class TestComplexParsing:
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
 
-    def test_target_resource_arg(self, runner: E2ETestRunner) -> None:
-        """Test -target for an existing resource.
-        
-        Risk: Terraform target arguments must be forwarded without shell parsing.
+    def test_config_plan_args_append_comment_args(self, runner: E2ETestRunner) -> None:
+        """Test configured plan-args compose with PR comment args.
+
+        Risk: Config-driven plan args and comment args must not overwrite each other.
         """
-        branch, pr, sha = runner.setup_test_pr("target_arg")
-        
+        branch, pr, sha = runner.setup_test_pr("config_plan_args")
+
+        runner.commit_file(
+            branch=branch,
+            path=".tf-branch-deploy.yml",
+            content=dedent("""
+                default-environment: dev
+                production-environments:
+                  - prod
+                stable-branch: main
+                defaults:
+                  plan-args:
+                    args:
+                      - "-parallelism=7"
+                environments:
+                  dev:
+                    working-directory: ./terraform/dev
+                    var-files:
+                      paths:
+                        - ../common.tfvars
+                        - dev.tfvars
+                  prod:
+                    working-directory: ./terraform/prod
+                    var-files:
+                      paths:
+                        - ../common.tfvars
+                        - prod.tfvars
+            """).lstrip(),
+            message="test: add configured plan args",
+        )
+
         run = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
-            timeout=300
+            timeout=300,
         )
-        
+
         runner.assert_workflow_success(run)
+        runner.assert_logs_contain(run.id, "-parallelism=7")
         runner.assert_logs_contain(run.id, "-target=local_file.test")

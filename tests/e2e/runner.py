@@ -44,6 +44,7 @@ class WorkflowRun:
     created_at: str
     updated_at: str
     head_sha: str
+    display_title: str | None = None
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
 
     @property
@@ -58,6 +59,12 @@ class WorkflowRun:
     def is_failure(self) -> bool:
         return self.conclusion == "failure"
 
+    def matches_comment(self, comment_id: int | None) -> bool:
+        """Return whether this workflow run belongs to a posted comment."""
+        if comment_id is None:
+            return True
+        return self.display_title is not None and f"comment {comment_id}" in self.display_title
+
 
 @dataclass
 class PRComment:
@@ -68,6 +75,18 @@ class PRComment:
     user: str
     created_at: str
     html_url: str
+
+
+def _default_github_api_url() -> str:
+    """Return the GitHub API URL for github.com or GitHub Enterprise Server."""
+    if api_url := os.environ.get("GITHUB_API_URL"):
+        return api_url.rstrip("/")
+
+    server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    if server_url == "https://github.com":
+        return "https://api.github.com"
+
+    return f"{server_url}/api/v3"
 
 
 class E2ETestRunner:
@@ -87,11 +106,12 @@ class E2ETestRunner:
         token: str | None = None,
         base_branch: str = "main",
         transport: httpx.BaseTransport | None = None,
+        api_url: str | None = None,
     ):
         self.repo = repo
         self.token = token or os.environ.get("GITHUB_TOKEN")
         self.base_branch = base_branch
-        self.base_url = "https://api.github.com"
+        self.base_url = (api_url or _default_github_api_url()).rstrip("/")
 
         if not self.token:
             raise ValueError("GitHub token required. Set GITHUB_TOKEN env var.")
@@ -143,6 +163,42 @@ class E2ETestRunner:
             # Ignore 422 (branch doesn't exist)
             if resp.status_code != 422:
                 resp.raise_for_status()
+
+    def lock_ref_name(self, environment: str) -> str:
+        """Return the Branch Deploy lock ref name for an environment or global lock."""
+        if environment == "global":
+            return "global-branch-deploy-lock"
+        return f"{environment}-branch-deploy-lock"
+
+    def lock_ref_exists(self, environment: str) -> bool:
+        """Return whether a Branch Deploy lock branch exists."""
+        lock_ref = self.lock_ref_name(environment)
+        resp = self.client.get(f"/repos/{self.repo}/git/refs/heads/{lock_ref}")
+        if resp.status_code == 200:
+            return True
+        if resp.status_code in (404, 422):
+            return False
+        resp.raise_for_status()
+        return False
+
+    def delete_lock_ref_if_exists(self, environment: str) -> None:
+        """Delete a Branch Deploy lock branch when preflight cleanup needs it."""
+        lock_ref = self.lock_ref_name(environment)
+        resp = self.client.delete(f"/repos/{self.repo}/git/refs/heads/{lock_ref}")
+        if resp.status_code not in (204, 404, 422):
+            resp.raise_for_status()
+
+    def assert_lock_ref_exists(self, environment: str) -> None:
+        """Assert that a Branch Deploy lock branch exists."""
+        if not self.lock_ref_exists(environment):
+            lock_ref = self.lock_ref_name(environment)
+            raise AssertionError(f"Expected lock ref to exist: {lock_ref}")
+
+    def assert_no_lock_ref(self, environment: str) -> None:
+        """Assert that a Branch Deploy lock branch does not exist."""
+        if self.lock_ref_exists(environment):
+            lock_ref = self.lock_ref_name(environment)
+            raise AssertionError(f"Expected lock ref to be absent: {lock_ref}")
 
     def commit_file(
         self,
@@ -247,9 +303,13 @@ class E2ETestRunner:
         from datetime import datetime, timezone
         before_comment = datetime.now(timezone.utc).isoformat()
         
-        self.post_comment(pr_number, command)
+        comment_id = self.post_comment(pr_number, command)
         
-        return self.wait_for_workflow(after_timestamp=before_comment, timeout=timeout)
+        return self.wait_for_workflow(
+            after_timestamp=before_comment,
+            timeout=timeout,
+            comment_id=comment_id,
+        )
 
     def get_comments(self, pr_number: int) -> list[PRComment]:
         """Get all comments on a PR."""
@@ -302,6 +362,7 @@ class E2ETestRunner:
                 created_at=r["created_at"],
                 updated_at=r["updated_at"],
                 head_sha=r["head_sha"],
+                display_title=r.get("display_title"),
                 raw=r,
             )
             for r in runs
@@ -322,6 +383,7 @@ class E2ETestRunner:
             created_at=r["created_at"],
             updated_at=r["updated_at"],
             head_sha=r["head_sha"],
+            display_title=r.get("display_title"),
             raw=r,
         )
 
@@ -330,6 +392,7 @@ class E2ETestRunner:
         after_timestamp: str | None = None,
         timeout: int = 300,
         poll_interval: int = 10,
+        comment_id: int | None = None,
     ) -> WorkflowRun:
         """
         Wait for a workflow run to complete.
@@ -338,6 +401,7 @@ class E2ETestRunner:
             after_timestamp: ISO timestamp - only consider runs created after this
             timeout: Maximum seconds to wait
             poll_interval: Seconds between polls
+            comment_id: GitHub issue comment id that should appear in the run name
 
         Returns:
             The completed WorkflowRun
@@ -366,7 +430,7 @@ class E2ETestRunner:
                 created = datetime.fromisoformat(run.created_at.replace("Z", "+00:00"))
                 
                 # Only consider runs created after our timestamp
-                if created > after_dt:
+                if created > after_dt and run.matches_comment(comment_id):
                     if target_run_id is None:
                         target_run_id = run.id
                     
@@ -381,6 +445,8 @@ class E2ETestRunner:
         msg = f"Workflow did not complete within {timeout}s"
         if target_run_id:
             msg += f" (run_id: {target_run_id})"
+        if comment_id:
+            msg += f" (comment_id: {comment_id})"
         raise TimeoutError(msg)
 
     def get_workflow_logs(self, run_id: int) -> str:
@@ -409,6 +475,13 @@ class E2ETestRunner:
         logs = self.get_workflow_logs(run_id)
         if pattern not in logs and not re.search(pattern, logs):
             raise AssertionError(f"Pattern '{pattern}' not found in workflow logs")
+        return logs
+
+    def assert_logs_do_not_contain(self, run_id: int, pattern: str) -> str:
+        """Assert that workflow logs do not contain a string or regex pattern."""
+        logs = self.get_workflow_logs(run_id)
+        if pattern in logs or re.search(pattern, logs):
+            raise AssertionError(f"Pattern '{pattern}' unexpectedly found in workflow logs")
         return logs
 
     def assert_no_direct_apply_without_plan(self, run_id: int) -> str:

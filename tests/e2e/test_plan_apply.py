@@ -21,26 +21,6 @@ from tests.e2e.runner import E2ETestRunner
 class TestPlan:
     """Plan operation tests."""
 
-    def test_plan_dev(self, runner: E2ETestRunner) -> None:
-        """
-        .plan to dev - standard plan to development.
-        
-        Expected:
-        - Workflow succeeds
-        - Bot posts plan output
-        - Plan shows changes (local_file resource)
-        """
-        branch, pr, sha = runner.setup_test_pr("plan_dev")
-        
-        run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
-        
-        runner.assert_workflow_success(run)
-        # Check for Deployment Results comment (latest)
-        runner.assert_comment_contains(pr, "Deployment Results")
-        
-        # Optionally, check that tfcmt also posted (previous comment)
-        # But for now, verifying success and result comment is sufficient
-
     def test_plan_prod(self, runner: E2ETestRunner) -> None:
         """
         .plan to prod - plan to production (should show warning).
@@ -59,26 +39,6 @@ class TestPlan:
         runner.assert_comment_contains(pr, "Deployment Results")
         # Ensure production warning is present
         runner.assert_comment_contains(pr, "prod")
-
-    @pytest.mark.args
-    def test_plan_with_var(self, runner: E2ETestRunner) -> None:
-        """
-        .plan to dev | -var='key=value'
-        
-        Expected:
-        - Workflow succeeds
-        - -var is passed correctly (quotes handled)
-        """
-        branch, pr, sha = runner.setup_test_pr("plan_var")
-        
-        run = runner.post_and_wait(
-            pr, 
-            ".plan to dev | -var='message=hello world'", 
-            timeout=300
-        )
-        
-        runner.assert_workflow_success(run)
-        runner.assert_comment_contains(pr, "Deployment Results")
 
 
 @pytest.mark.e2e
@@ -100,12 +60,14 @@ class TestApply:
         # First: plan
         plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
         runner.assert_workflow_success(plan_run)
+        runner.assert_no_lock_ref("dev")
         
         # Then: apply
         apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         runner.assert_workflow_success(apply_run)
         runner.assert_comment_contains(pr, "Deployment Results")
         runner.assert_apply_used_plan(apply_run.id, f"tfplan-dev-{sha[:8]}.tfplan")
+        runner.assert_no_lock_ref("dev")
 
     @pytest.mark.critical
     def test_apply_after_targeted_plan_uses_saved_target_plan(
@@ -136,6 +98,42 @@ class TestApply:
             apply_run.id,
             "Plan was created with args: -target=local_file.test",
         )
+
+    @pytest.mark.critical
+    @pytest.mark.args
+    def test_apply_rejects_extra_args_after_saved_targeted_plan(
+        self, runner: E2ETestRunner
+    ) -> None:
+        """
+        .plan with target followed by .apply with fresh args must fail.
+
+        Expected:
+        - Plan succeeds and saves the targeted plan.
+        - Apply with new args is rejected before Terraform can run apply.
+        - The saved plan remains the only allowed normal apply input.
+        """
+        branch, pr, sha = runner.setup_test_pr("apply_rejects_fresh_args")
+
+        plan_run = runner.post_and_wait(
+            pr,
+            ".plan to dev | -target=local_file.test",
+            timeout=300,
+        )
+        runner.assert_workflow_success(plan_run)
+
+        apply_run = runner.post_and_wait(
+            pr,
+            ".apply to dev | -target=local_file.test",
+            timeout=300,
+        )
+
+        runner.assert_workflow_failure(apply_run)
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
+        runner.assert_logs_contain(
+            apply_run.id,
+            "Extra Terraform arguments are only supported on plan commands",
+        )
+        runner.assert_no_direct_apply_without_plan(apply_run.id)
 
     @pytest.mark.critical
     def test_apply_without_plan_fails(self, runner: E2ETestRunner) -> None:
@@ -176,3 +174,30 @@ class TestRollback:
         
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
+
+    @pytest.mark.critical
+    @pytest.mark.args
+    def test_rollback_rejects_extra_args(self, runner: E2ETestRunner) -> None:
+        """
+        .apply main to dev with Terraform args must fail.
+
+        Expected:
+        - Workflow detects rollback.
+        - CLI rejects the extra Terraform arguments.
+        - Rollback does not run a targeted direct apply.
+        """
+        branch, pr, sha = runner.setup_test_pr("rollback_rejects_args")
+
+        run = runner.post_and_wait(
+            pr,
+            ".apply main to dev | -target=local_file.test",
+            timeout=300,
+        )
+
+        runner.assert_workflow_failure(run)
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
+        runner.assert_logs_contain(
+            run.id,
+            "Extra Terraform arguments are only supported on plan commands",
+        )
+        runner.assert_no_direct_apply_without_plan(run.id)

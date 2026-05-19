@@ -66,7 +66,15 @@ LIVE_STAGES = [
     ),
     Stage(
         name="args",
-        command=["uv", "run", "pytest", "tests/e2e", "-m", "args", "--maxfail=1"],
+        command=[
+            "uv",
+            "run",
+            "pytest",
+            "tests/e2e",
+            "-m",
+            "args and not critical",
+            "--maxfail=1",
+        ],
         mutates_github=True,
     ),
     Stage(

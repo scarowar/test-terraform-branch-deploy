@@ -16,6 +16,9 @@ from tests.e2e.runner import E2ETestRunner
 @pytest.fixture(scope="module", autouse=True)
 def clear_existing_locks(runner: E2ETestRunner) -> None:
     """Clear stale locks before asserting lock creation behavior."""
+    runner.delete_lock_ref_if_exists("dev")
+    runner.delete_lock_ref_if_exists("global")
+
     branch, pr, sha = runner.setup_test_pr("lock_preflight")
     try:
         for command in (".unlock dev", ".unlock --global"):
@@ -23,6 +26,8 @@ def clear_existing_locks(runner: E2ETestRunner) -> None:
             assert run.is_complete
     finally:
         runner.cleanup_test_pr(branch, pr)
+        runner.delete_lock_ref_if_exists("dev")
+        runner.delete_lock_ref_if_exists("global")
 
 
 @pytest.mark.e2e
@@ -46,11 +51,13 @@ class TestLocking:
         lock_run = runner.post_and_wait(pr, ".lock dev", timeout=180)
         runner.assert_workflow_success(lock_run)
         runner.assert_comment_contains(pr, "Lock Claimed")
+        runner.assert_lock_ref_exists("dev")
         
         # Unlock
         unlock_run = runner.post_and_wait(pr, ".unlock dev", timeout=180)
         runner.assert_workflow_success(unlock_run)
         runner.assert_comment_contains(pr, "Deployment Lock Removed")
+        runner.assert_no_lock_ref("dev")
 
     def test_deploy_while_locked_by_owner_succeeds(self, runner: E2ETestRunner) -> None:
         """
@@ -64,6 +71,7 @@ class TestLocking:
         lock_run = runner.post_and_wait(pr1, ".lock dev", timeout=180)
         runner.assert_workflow_success(lock_run)
         runner.assert_comment_contains(pr1, "Lock Claimed")
+        runner.assert_lock_ref_exists("dev")
         
         # PR2: Try to plan (should succeed for same user)
         branch2, pr2, sha2 = runner.setup_test_pr("lock_owner")
@@ -72,9 +80,12 @@ class TestLocking:
         # Verify allowed
         runner.assert_workflow_success(plan_run)
         runner.assert_comment_contains(pr2, "Deployment Results")
+        runner.assert_lock_ref_exists("dev")
         
         # Cleanup: unlock from PR1
-        runner.post_and_wait(pr1, ".unlock dev", timeout=180)
+        unlock_run = runner.post_and_wait(pr1, ".unlock dev", timeout=180)
+        runner.assert_workflow_success(unlock_run)
+        runner.assert_no_lock_ref("dev")
 
     def test_wcid_shows_lock_status(self, runner: E2ETestRunner) -> None:
         """
@@ -94,12 +105,15 @@ class TestLocking:
         lock_run = runner.post_and_wait(pr, ".lock dev", timeout=180)
         runner.assert_workflow_success(lock_run)
         runner.assert_comment_contains(pr, "Lock Claimed")
+        runner.assert_lock_ref_exists("dev")
         wcid_run2 = runner.post_and_wait(pr, ".wcid", timeout=180)
         runner.assert_workflow_success(wcid_run2)
         runner.assert_comment_contains(pr, "dev")
         
         # Cleanup
-        runner.post_and_wait(pr, ".unlock dev", timeout=180)
+        unlock_run = runner.post_and_wait(pr, ".unlock dev", timeout=180)
+        runner.assert_workflow_success(unlock_run)
+        runner.assert_no_lock_ref("dev")
 
     def test_global_lock(self, runner: E2ETestRunner) -> None:
         """
@@ -114,6 +128,7 @@ class TestLocking:
         lock_run = runner.post_and_wait(pr, ".lock --global", timeout=180)
         runner.assert_workflow_success(lock_run)
         runner.assert_comment_contains(pr, "Lock Claimed")
+        runner.assert_lock_ref_exists("global")
         
         # Verify lock status shows global
         wcid_run = runner.post_and_wait(pr, ".wcid", timeout=180)
@@ -121,4 +136,6 @@ class TestLocking:
         runner.assert_comment_contains(pr, "(?i)global")
         
         # Cleanup: unlock global
-        runner.post_and_wait(pr, ".unlock --global", timeout=180)
+        unlock_run = runner.post_and_wait(pr, ".unlock --global", timeout=180)
+        runner.assert_workflow_success(unlock_run)
+        runner.assert_no_lock_ref("global")
