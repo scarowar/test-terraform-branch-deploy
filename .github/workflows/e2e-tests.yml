@@ -124,7 +124,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.E2E_PAT }}
           TF_BRANCH_DEPLOY_REF: ${{ env.CANDIDATE_REF }}
-        run: python3 scripts/run-certification.py --live --cleanup-first --stage "${CERTIFICATION_STAGE}"
+        run: uv run python scripts/run-certification.py --live --cleanup-first --stage "${CERTIFICATION_STAGE}"
 
       - name: Mark E2E status complete
         if: always() && env.SOURCE_PR != '' && env.CANDIDATE_REF != ''
