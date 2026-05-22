@@ -22,6 +22,9 @@ uv run pytest tests/e2e/ -v
 # Run live validation in severity order
 python3 scripts/run-certification.py --live
 
+# Run one live validation stage
+python3 scripts/run-certification.py --live --stage critical
+
 # Run by category
 uv run pytest -m core -v      # Core workflows
 uv run pytest -m failures -v  # Error handling
@@ -41,6 +44,21 @@ uv run pytest -m slow -v      # Enterprise scenarios
 | **TOTAL** | **22** | **Live workflow coverage** |
 
 Local contract checks verify that the E2E workflow tests a pinned action ref instead of a floating branch.
+
+---
+
+## Pull Request Validation
+
+Pull requests in `terraform-branch-deploy` run local CI without repository secrets. Live validation runs from this test repository against an exact commit SHA or release tag.
+
+```bash
+gh workflow run e2e-tests.yml \
+  -f candidate_ref=<terraform-branch-deploy-sha> \
+  -f source_pr=<pull-request-number> \
+  -f stage=critical
+```
+
+Use `stage=all` for the full release gate. The workflow temporarily sets `TF_BRANCH_DEPLOY_REF`, restores the previous value after the run, and writes a commit status to the source pull request when `TFBD_STATUS_TOKEN` is configured. Set `TFBD_STATUS_TOKEN` before using `source_pr`.
 
 ---
 
@@ -104,8 +122,10 @@ Local contract checks verify that the E2E workflow tests a pinned action ref ins
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_TOKEN` | Required | GitHub PAT with repo access |
+| `GITHUB_TOKEN` | Required locally | GitHub PAT with repo access for local live tests |
+| `E2E_PAT` | GitHub Actions secret | Token used by scheduled and manual workflow runs to create test resources |
 | `TF_BRANCH_DEPLOY_REF` | `.github/terraform-branch-deploy-ref` | Action ref used by the deploy workflow |
+| `TFBD_STATUS_TOKEN` | optional GitHub Actions secret | Token used by the manual E2E workflow to write commit status to `terraform-branch-deploy` |
 | `E2E_COMMIT_AUTHOR_NAME` | `terraform-branch-deploy-e2e` | Author and committer name for commits made by live tests |
 | `E2E_COMMIT_AUTHOR_EMAIL` | `terraform-branch-deploy-e2e@example.invalid` | Author and committer email for commits made by live tests |
 | `E2E_FORCE_CLEANUP` | `true` | Auto-cleanup test PRs |

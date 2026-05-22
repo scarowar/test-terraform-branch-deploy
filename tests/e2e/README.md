@@ -19,6 +19,17 @@ python3 scripts/run-certification.py --live
 
 Stop on the first failing stage, inspect the workflow URL from the failure, fix the issue, then restart from the relevant marker.
 
+For pull request validation, run the GitHub Actions workflow from this repository so the candidate ref and result are recorded:
+
+```bash
+gh workflow run e2e-tests.yml \
+  -f candidate_ref=<terraform-branch-deploy-sha> \
+  -f source_pr=<pull-request-number> \
+  -f stage=critical
+```
+
+Use `stage=all` for the full release gate. Set `TFBD_STATUS_TOKEN` before using `source_pr`.
+
 ## Severity Markers
 
 | Marker | Purpose |

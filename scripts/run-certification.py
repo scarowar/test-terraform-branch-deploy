@@ -105,6 +105,10 @@ LIVE_STAGES = [
     ),
 ]
 
+
+LIVE_STAGE_NAMES = tuple(stage.name for stage in LIVE_STAGES)
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -113,12 +117,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--live",
         action="store_true",
-        help="Run live E2E stages that create GitHub PRs, branches, comments, and workflow runs.",
+        help=(
+            "Run live E2E stages that create GitHub PRs, branches, comments, "
+            "and workflow runs."
+        ),
     )
     parser.add_argument(
         "--cleanup-first",
         action="store_true",
         help="Run scripts/cleanup-e2e.py --execute before live stages.",
+    )
+    parser.add_argument(
+        "--stage",
+        choices=["all", *LIVE_STAGE_NAMES],
+        default="all",
+        help="Live stage to run. Local contract checks always run first.",
     )
     return parser.parse_args()
 
@@ -136,6 +149,10 @@ def main() -> int:
     """Run certification stages."""
     args = parse_args()
 
+    if args.stage != "all" and not args.live:
+        print("--stage requires --live.", file=sys.stderr)
+        return 2
+
     stages = list(LOCAL_STAGES)
     if args.live:
         if not os.environ.get("GITHUB_TOKEN"):
@@ -150,7 +167,11 @@ def main() -> int:
                     mutates_github=True,
                 )
             )
-        stages.extend(LIVE_STAGES)
+        stages.extend(
+            stage
+            for stage in LIVE_STAGES
+            if args.stage == "all" or stage.name == args.stage
+        )
     elif args.cleanup_first:
         print("--cleanup-first requires --live.", file=sys.stderr)
         return 2
