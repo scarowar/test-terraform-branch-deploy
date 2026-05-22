@@ -29,6 +29,31 @@ E2E_COMMIT_AUTHOR_EMAIL = os.environ.get(
     "E2E_COMMIT_AUTHOR_EMAIL",
     "terraform-branch-deploy-e2e@example.invalid",
 )
+CANDIDATE_REF_RE = re.compile(
+    r"^(v[0-9]+(\.[0-9]+){0,2}(-[0-9A-Za-z.-]+)?|[0-9a-f]{40})$"
+)
+CANDIDATE_REF_MARKER = "terraform-branch-deploy-ref"
+
+
+def candidate_ref_from_env() -> str:
+    """Return the candidate action ref for PR body metadata."""
+    candidate_ref = os.environ.get("TF_BRANCH_DEPLOY_REF", "").strip()
+    if not candidate_ref:
+        return ""
+    if not CANDIDATE_REF_RE.fullmatch(candidate_ref):
+        raise ValueError(
+            "TF_BRANCH_DEPLOY_REF must be a release tag or full commit SHA."
+        )
+    return candidate_ref
+
+
+def build_test_pr_body(test_name: str) -> str:
+    """Build the E2E pull request body."""
+    body = f"Automated E2E test for {test_name}"
+    candidate_ref = candidate_ref_from_env()
+    if candidate_ref:
+        body += f"\n\n<!-- {CANDIDATE_REF_MARKER}: {candidate_ref} -->"
+    return body
 
 
 @dataclass
@@ -567,7 +592,7 @@ class E2ETestRunner:
         pr_number = self.create_pr(
             branch=branch_name,
             title=f"E2E Test: {test_name}",
-            body=f"Automated E2E test for {test_name}",
+            body=build_test_pr_body(test_name),
         )
 
         # Register artifacts for automatic cleanup

@@ -49,7 +49,16 @@ Local contract checks verify that the E2E workflow tests a pinned action ref ins
 
 ## Pull Request Validation
 
-Pull requests in `terraform-branch-deploy` run local CI without repository secrets. Live validation runs from this test repository against an exact commit SHA or release tag.
+Pull requests in `terraform-branch-deploy` run local CI without repository secrets. After review, a maintainer can start live validation from the pull request:
+
+```text
+/e2e
+/e2e critical
+```
+
+`/e2e` runs the full release gate. Stage-specific commands are for diagnosis.
+
+You can also dispatch this workflow directly from the test repository:
 
 ```bash
 gh workflow run e2e-tests.yml \
@@ -58,7 +67,7 @@ gh workflow run e2e-tests.yml \
   -f stage=critical
 ```
 
-Use `stage=all` for the full release gate. The workflow temporarily sets `TF_BRANCH_DEPLOY_REF`, restores the previous value after the run, and writes a commit status to the source pull request when `TFBD_STATUS_TOKEN` is configured. Set `TFBD_STATUS_TOKEN` before using `source_pr`.
+Use `stage=all` for the full release gate. When `source_pr` is set, the workflow writes a commit status to the source pull request with `TFBD_STATUS_TOKEN`.
 
 ---
 
@@ -124,14 +133,14 @@ Use `stage=all` for the full release gate. The workflow temporarily sets `TF_BRA
 |----------|---------|-------------|
 | `GITHUB_TOKEN` | Required locally | GitHub PAT with repo access for local live tests |
 | `E2E_PAT` | GitHub Actions secret | Token used by scheduled and manual workflow runs to create test resources |
-| `TF_BRANCH_DEPLOY_REF` | `.github/terraform-branch-deploy-ref` | Action ref used by the deploy workflow |
+| `TF_BRANCH_DEPLOY_REF` | `.github/terraform-branch-deploy-ref` | Optional local or fallback action ref used by the deploy workflow |
 | `TFBD_STATUS_TOKEN` | optional GitHub Actions secret | Token used by the manual E2E workflow to write commit status to `terraform-branch-deploy` |
 | `E2E_COMMIT_AUTHOR_NAME` | `terraform-branch-deploy-e2e` | Author and committer name for commits made by live tests |
 | `E2E_COMMIT_AUTHOR_EMAIL` | `terraform-branch-deploy-e2e@example.invalid` | Author and committer email for commits made by live tests |
 | `E2E_FORCE_CLEANUP` | `true` | Auto-cleanup test PRs |
 | `E2E_CLEANUP_DELAY` | `0.5` | Rate limit delay (seconds) |
 
-`TF_BRANCH_DEPLOY_REF` may be set as a repository variable for temporary runs. Otherwise, update `.github/terraform-branch-deploy-ref` to the exact commit SHA or release tag under test. Do not use `main`.
+The normal `/e2e` path records the candidate ref on each temporary test pull request. For scheduled or local runs, set `TF_BRANCH_DEPLOY_REF` or update `.github/terraform-branch-deploy-ref` to the exact commit SHA or release tag under test. Do not use `main`.
 
 ## Validation Order
 

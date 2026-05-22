@@ -19,7 +19,19 @@ python3 scripts/run-certification.py --live
 
 Stop on the first failing stage, inspect the workflow URL from the failure, fix the issue, then restart from the relevant marker.
 
-For pull request validation, run the GitHub Actions workflow from this repository so the candidate ref and result are recorded:
+For pull request validation, comment from the `terraform-branch-deploy` pull request after review:
+
+```text
+/e2e
+```
+
+Use a stage name for diagnosis:
+
+```text
+/e2e critical
+```
+
+You can also run the GitHub Actions workflow from this repository:
 
 ```bash
 gh workflow run e2e-tests.yml \

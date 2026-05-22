@@ -47,6 +47,7 @@ def test_workflow_rejects_main_as_candidate_ref() -> None:
     workflow = WORKFLOW.read_text()
 
     assert '[ "$ref" = "main" ]' in workflow
+    assert '[ "$ref" = "master" ]' in workflow
     assert "release tag or commit SHA" in workflow
 
 
@@ -81,9 +82,48 @@ def test_e2e_workflow_accepts_pinned_candidate_dispatch() -> None:
     assert "stage:" in workflow
     assert "main|master" in workflow
     assert "TF_BRANCH_DEPLOY_REF" in workflow
-    assert "gh variable set TF_BRANCH_DEPLOY_REF" in workflow
-    assert "gh variable delete TF_BRANCH_DEPLOY_REF" in workflow
     assert "terraform-branch-deploy/e2e" in workflow
+
+
+def test_e2e_workflow_does_not_mutate_candidate_repo_variable() -> None:
+    """Candidate refs should be carried by test PR metadata, not global repo state."""
+    workflow = E2E_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "gh variable set TF_BRANCH_DEPLOY_REF" not in workflow
+    assert "gh variable delete TF_BRANCH_DEPLOY_REF" not in workflow
+    assert 'TF_BRANCH_DEPLOY_REF: ${{ env.CANDIDATE_REF }}' in workflow
+
+
+def test_deploy_workflow_resolves_candidate_from_pr_body() -> None:
+    """The deploy workflow should prefer the candidate marker on the test PR."""
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "terraform-branch-deploy-ref:" in workflow
+    assert "gh api \"repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}\"" in workflow
+    assert "vars.TF_BRANCH_DEPLOY_REF" in workflow
+    assert ".github/terraform-branch-deploy-ref" in workflow
+
+
+def test_external_workflows_start_with_harden_runner() -> None:
+    """Runtime workflows should start with Step Security monitoring."""
+    for path in WORKFLOW_FILES:
+        workflow = path.read_text(encoding="utf-8")
+        if "actions/checkout@" not in workflow:
+            continue
+        assert "step-security/harden-runner@" in workflow
+        assert workflow.index("step-security/harden-runner@") < workflow.index(
+            "actions/checkout@"
+        )
+
+
+def test_checkout_steps_do_not_persist_credentials() -> None:
+    """The E2E workflows should not leave checkout credentials in git config."""
+    for path in WORKFLOW_FILES:
+        workflow = path.read_text(encoding="utf-8")
+        checkout_count = workflow.count("actions/checkout@")
+        if checkout_count == 0:
+            continue
+        assert workflow.count("persist-credentials: false") >= checkout_count
 
 
 def test_e2e_dispatch_inputs_are_not_shell_source() -> None:

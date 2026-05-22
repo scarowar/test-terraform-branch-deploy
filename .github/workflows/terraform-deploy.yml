@@ -28,22 +28,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
       # 1. Checkout first (so config file exists)
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Resolve terraform-branch-deploy ref
         id: tfbd-ref
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
           TF_BRANCH_DEPLOY_REF: ${{ vars.TF_BRANCH_DEPLOY_REF }}
         run: |
-          ref="${TF_BRANCH_DEPLOY_REF}"
+          pr_body="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""')"
+          ref="$(
+            printf '%s\n' "$pr_body" |
+              sed -nE 's/^<!-- terraform-branch-deploy-ref: ([^[:space:]]+) -->$/\1/p' |
+              tail -n 1
+          )"
+
+          if [ -z "$ref" ]; then
+            ref="${TF_BRANCH_DEPLOY_REF}"
+          fi
+
           if [ -z "$ref" ]; then
             ref="$(tr -d '[:space:]' < .github/terraform-branch-deploy-ref)"
           fi
 
-          if [ -z "$ref" ] || [ "$ref" = "main" ]; then
+          if [ -z "$ref" ] || [ "$ref" = "main" ] || [ "$ref" = "master" ]; then
             echo "::error::Set TF_BRANCH_DEPLOY_REF or .github/terraform-branch-deploy-ref to a release tag or commit SHA"
             exit 1
           fi
@@ -63,7 +82,7 @@ jobs:
         env:
           TFBD_REF: ${{ steps.tfbd-ref.outputs.ref }}
         run: |
-          if ! [[ "${TFBD_REF}" =~ ^v[0-9]+(\.[0-9]+){0,2}$ || "${TFBD_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+          if ! [[ "${TFBD_REF}" =~ ^v[0-9]+(\.[0-9]+){0,2}(-[0-9A-Za-z.-]+)?$ || "${TFBD_REF}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::TF_BRANCH_DEPLOY_REF must be a release tag or full commit SHA"
             exit 1
           fi
@@ -74,6 +93,7 @@ jobs:
           repository: scarowar/terraform-branch-deploy
           ref: ${{ steps.tfbd-ref.outputs.ref }}
           path: .terraform-branch-deploy-action
+          persist-credentials: false
 
       # 2. TRIGGER MODE - Parse command, export TF_BD_* to GITHUB_ENV
       - name: Trigger
@@ -107,6 +127,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.TF_BD_REF }}
+          persist-credentials: false
 
       - name: Checkout terraform-branch-deploy candidate for execute
         if: env.TF_BD_CONTINUE == 'true'
@@ -115,6 +136,7 @@ jobs:
           repository: scarowar/terraform-branch-deploy
           ref: ${{ steps.tfbd-ref.outputs.ref }}
           path: .terraform-branch-deploy-action
+          persist-credentials: false
 
       # 4. EXECUTE MODE - Run terraform, complete lifecycle
       #    Picks up ALL env vars automatically (same job)

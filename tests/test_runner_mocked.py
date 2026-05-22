@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.e2e.runner import E2ETestRunner
+from tests.e2e.runner import E2ETestRunner, build_test_pr_body
 
 
 REPO_PATH = "/repos/scarowar/test-terraform-branch-deploy"
@@ -137,6 +137,7 @@ def test_setup_test_pr_creates_branch_commit_and_pr_requests() -> None:
         if request.method == "POST" and path == f"{REPO_PATH}/pulls":
             payload = json.loads(request.content)
             assert payload["title"] == "E2E Test: mocked"
+            assert payload["body"] == "Automated E2E test for mocked"
             assert payload["base"] == "main"
             return response(request, 201, {"number": 42})
 
@@ -149,6 +150,29 @@ def test_setup_test_pr_creates_branch_commit_and_pr_requests() -> None:
     assert pr_number == 42
     assert commit_sha == "commit-sha"
     assert [request.method for request in requests] == ["GET", "POST", "GET", "PUT", "POST"]
+
+
+@pytest.mark.mocked
+def test_pr_body_includes_candidate_ref_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """E2E PRs should carry the candidate action ref when one is provided."""
+    candidate_ref = "0123456789abcdef0123456789abcdef01234567"
+    monkeypatch.setenv("TF_BRANCH_DEPLOY_REF", candidate_ref)
+
+    assert build_test_pr_body("mocked") == (
+        "Automated E2E test for mocked\n\n"
+        f"<!-- terraform-branch-deploy-ref: {candidate_ref} -->"
+    )
+
+
+@pytest.mark.mocked
+def test_pr_body_rejects_unpinned_candidate_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E2E PR metadata must not carry a floating candidate ref."""
+    monkeypatch.setenv("TF_BRANCH_DEPLOY_REF", "main")
+
+    with pytest.raises(ValueError, match="release tag or full commit SHA"):
+        build_test_pr_body("mocked")
 
 
 @pytest.mark.mocked

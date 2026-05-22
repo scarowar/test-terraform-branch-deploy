@@ -41,9 +41,14 @@ jobs:
       SOURCE_PR: ${{ github.event.inputs.source_pr || '' }}
       CERTIFICATION_STAGE: ${{ github.event.inputs.stage || 'all' }}
       SOURCE_REPOSITORY: scarowar/terraform-branch-deploy
-      STATUS_CONTEXT: terraform-branch-deploy/e2e
+      STATUS_CONTEXT_BASE: terraform-branch-deploy/e2e
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
       - name: Checkout test repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -95,66 +100,31 @@ jobs:
             exit 2
           fi
 
-      - name: Capture current candidate ref
-        id: previous-ref
-        if: env.CANDIDATE_REF != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.E2E_PAT }}
-          GH_TOKEN: ${{ secrets.E2E_PAT }}
-        run: |
-          set +e
-          previous_ref="$(gh variable get TF_BRANCH_DEPLOY_REF --repo "${GITHUB_REPOSITORY}" 2>/dev/null)"
-          exit_code="$?"
-          set -e
-
-          if [ "${exit_code}" -eq 0 ]; then
-            {
-              echo "exists=true"
-              echo "value<<EOF"
-              printf '%s\n' "${previous_ref}"
-              echo "EOF"
-            } >> "${GITHUB_OUTPUT}"
-          else
-            echo "exists=false" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Set candidate ref
-        if: env.CANDIDATE_REF != ''
-        env:
-          GH_TOKEN: ${{ secrets.E2E_PAT }}
-        run: gh variable set TF_BRANCH_DEPLOY_REF --repo "${GITHUB_REPOSITORY}" --body "${CANDIDATE_REF}"
-
       - name: Mark E2E status pending
         if: env.SOURCE_PR != '' && env.CANDIDATE_REF != ''
         env:
           GH_TOKEN: ${{ secrets.TFBD_STATUS_TOKEN }}
         run: |
+          context="${STATUS_CONTEXT_BASE}"
+          if [ "${CERTIFICATION_STAGE}" != "all" ]; then
+            context="${STATUS_CONTEXT_BASE}-${CERTIFICATION_STAGE}"
+          fi
+
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "repos/${SOURCE_REPOSITORY}/statuses/${CANDIDATE_REF}" \
             -f state=pending \
-            -f context="${STATUS_CONTEXT}" \
+            -f context="${context}" \
             -f description="External E2E ${CERTIFICATION_STAGE} started for PR #${SOURCE_PR}" \
             -f target_url="${RUN_URL}"
 
       - name: Run E2E Tests
         env:
           GITHUB_TOKEN: ${{ secrets.E2E_PAT }}
+          TF_BRANCH_DEPLOY_REF: ${{ env.CANDIDATE_REF }}
         run: python3 scripts/run-certification.py --live --cleanup-first --stage "${CERTIFICATION_STAGE}"
-
-      - name: Restore candidate ref
-        if: always() && env.CANDIDATE_REF != ''
-        env:
-          GH_TOKEN: ${{ secrets.E2E_PAT }}
-          PREVIOUS_REF: ${{ steps.previous-ref.outputs.value }}
-        run: |
-          if [ "${{ steps.previous-ref.outputs.exists }}" = "true" ]; then
-            gh variable set TF_BRANCH_DEPLOY_REF --repo "${GITHUB_REPOSITORY}" --body "${PREVIOUS_REF}"
-          else
-            gh variable delete TF_BRANCH_DEPLOY_REF --repo "${GITHUB_REPOSITORY}" || true
-          fi
 
       - name: Mark E2E status complete
         if: always() && env.SOURCE_PR != '' && env.CANDIDATE_REF != ''
@@ -162,6 +132,11 @@ jobs:
           GH_TOKEN: ${{ secrets.TFBD_STATUS_TOKEN }}
           JOB_STATUS: ${{ job.status }}
         run: |
+          context="${STATUS_CONTEXT_BASE}"
+          if [ "${CERTIFICATION_STAGE}" != "all" ]; then
+            context="${STATUS_CONTEXT_BASE}-${CERTIFICATION_STAGE}"
+          fi
+
           case "${JOB_STATUS}" in
             success)
               state="success"
@@ -183,7 +158,7 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "repos/${SOURCE_REPOSITORY}/statuses/${CANDIDATE_REF}" \
             -f state="${state}" \
-            -f context="${STATUS_CONTEXT}" \
+            -f context="${context}" \
             -f description="${description}" \
             -f target_url="${RUN_URL}"
 
