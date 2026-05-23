@@ -103,8 +103,11 @@ def test_runner_api_url_parameter_overrides_environment(monkeypatch: pytest.Monk
 
 
 @pytest.mark.mocked
-def test_setup_test_pr_creates_branch_commit_and_pr_requests() -> None:
+def test_setup_test_pr_creates_branch_commit_and_pr_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """setup_test_pr should call the expected GitHub APIs in order."""
+    monkeypatch.delenv("TF_BRANCH_DEPLOY_REF", raising=False)
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
