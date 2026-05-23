@@ -14,6 +14,7 @@ on:
 permissions:
   pull-requests: write
   deployments: write
+  issues: write
   contents: write
   checks: read
   statuses: read
@@ -43,11 +44,18 @@ jobs:
         id: tfbd-ref
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.issue.number }}
           TF_BRANCH_DEPLOY_REF: ${{ vars.TF_BRANCH_DEPLOY_REF }}
         run: |
-          pr_body="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""')"
+          pr_body="$(
+            python3 - <<'PY'
+          import json
+          import os
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          print(event.get("issue", {}).get("body") or "")
+          PY
+          )"
           ref="$(
             printf '%s\n' "$pr_body" |
               sed -nE 's/^<!-- terraform-branch-deploy-ref: ([^[:space:]]+) -->$/\1/p' |
@@ -100,7 +108,7 @@ jobs:
         uses: ./.terraform-branch-deploy-action
         with:
           mode: trigger
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}
 
       # ============================================================
       # CUSTOM STEPS GO HERE
@@ -145,4 +153,4 @@ jobs:
         uses: ./.terraform-branch-deploy-action
         with:
           mode: execute
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}

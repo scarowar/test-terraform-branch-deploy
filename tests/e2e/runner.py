@@ -13,8 +13,10 @@ from __future__ import annotations
 import os
 import re
 import time
+import uuid
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
 
@@ -70,6 +72,8 @@ class WorkflowRun:
     updated_at: str
     head_sha: str
     display_title: str | None = None
+    trigger_comment_id: int | None = None
+    triggered_after: str | None = None
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
 
     @property
@@ -88,7 +92,15 @@ class WorkflowRun:
         """Return whether this workflow run belongs to a posted comment."""
         if comment_id is None:
             return True
-        return self.display_title is not None and f"comment {comment_id}" in self.display_title
+        if self.display_title is None:
+            return False
+        return (
+            re.search(
+                rf"(?:^|\s)comment\s+{re.escape(str(comment_id))}(?:\s|$)",
+                self.display_title,
+            )
+            is not None
+        )
 
 
 @dataclass
@@ -100,6 +112,11 @@ class PRComment:
     user: str
     created_at: str
     html_url: str
+
+
+def _parse_github_timestamp(value: str) -> datetime:
+    """Parse a GitHub timestamp into an aware datetime."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _default_github_api_url() -> str:
@@ -141,6 +158,7 @@ class E2ETestRunner:
         if not self.token:
             raise ValueError("GitHub token required. Set GITHUB_TOKEN env var.")
 
+        self._last_command_timestamp_by_pr: dict[int, str] = {}
         self.client = httpx.Client(
             base_url=self.base_url,
             headers={
@@ -325,24 +343,35 @@ class E2ETestRunner:
         This is the preferred method for tests - it handles the timestamp
         tracking automatically.
         """
-        from datetime import datetime, timezone
         before_comment = datetime.now(timezone.utc).isoformat()
         
         comment_id = self.post_comment(pr_number, command)
+        self._last_command_timestamp_by_pr[pr_number] = before_comment
         
-        return self.wait_for_workflow(
+        run = self.wait_for_workflow(
             after_timestamp=before_comment,
             timeout=timeout,
             comment_id=comment_id,
         )
+        run.trigger_comment_id = comment_id
+        run.triggered_after = before_comment
+        return run
 
     def get_comments(self, pr_number: int) -> list[PRComment]:
         """Get all comments on a PR."""
-        resp = self.client.get(
-            f"/repos/{self.repo}/issues/{pr_number}/comments",
-            params={"per_page": 100},
-        )
-        resp.raise_for_status()
+        comments: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            resp = self.client.get(
+                f"/repos/{self.repo}/issues/{pr_number}/comments",
+                params={"per_page": 100, "page": page},
+            )
+            resp.raise_for_status()
+            page_comments = resp.json()
+            comments.extend(page_comments)
+            if len(page_comments) < 100:
+                break
+            page += 1
         return [
             PRComment(
                 id=c["id"],
@@ -351,7 +380,7 @@ class E2ETestRunner:
                 created_at=c["created_at"],
                 html_url=c["html_url"],
             )
-            for c in resp.json()
+            for c in comments
         ]
 
     def get_latest_bot_comment(self, pr_number: int) -> PRComment | None:
@@ -434,15 +463,13 @@ class E2ETestRunner:
         Raises:
             TimeoutError: If workflow doesn't complete in time
         """
-        from datetime import datetime, timezone
-
         start = time.time()
         
         # Use current time if no timestamp provided
         if after_timestamp is None:
             after_dt = datetime.now(timezone.utc)
         else:
-            after_dt = datetime.fromisoformat(after_timestamp.replace("Z", "+00:00"))
+            after_dt = _parse_github_timestamp(after_timestamp)
 
         # Track the run we're waiting for
         target_run_id: int | None = None
@@ -544,20 +571,39 @@ class E2ETestRunner:
         pr_number: int,
         pattern: str,
         from_bot: bool = True,
+        after_timestamp: str | None = None,
     ) -> PRComment:
         """Assert that a PR comment contains a pattern."""
+        after_timestamp = after_timestamp or self._last_command_timestamp_by_pr.get(pr_number)
+        after_dt = _parse_github_timestamp(after_timestamp) if after_timestamp else None
+        comments = self.get_comments(pr_number)
+
+        def created_after_trigger(comment: PRComment) -> bool:
+            if after_dt is None:
+                return True
+            return _parse_github_timestamp(comment.created_at) > after_dt
+
         if from_bot:
-            comment = self.get_latest_bot_comment(pr_number)
+            comment = next(
+                (
+                    c
+                    for c in reversed(comments)
+                    if c.user in ("github-actions[bot]", "github-actions")
+                    and created_after_trigger(c)
+                ),
+                None,
+            )
             if not comment:
-                raise AssertionError("No bot comment found")
+                raise AssertionError("No bot comment found after command under test")
             if pattern not in comment.body and not re.search(pattern, comment.body):
                 msg = f"Pattern '{pattern}' not found in comment: {comment.body[:200]}"
                 raise AssertionError(msg)
             return comment
         else:
-            comments = self.get_comments(pr_number)
             for comment in reversed(comments):
-                if pattern in comment.body or re.search(pattern, comment.body):
+                if created_after_trigger(comment) and (
+                    pattern in comment.body or re.search(pattern, comment.body)
+                ):
                     return comment
             msg = f"Pattern '{pattern}' not found in any comment"
             raise AssertionError(msg)
@@ -574,10 +620,12 @@ class E2ETestRunner:
 
         Returns: (branch_name, pr_number, head_sha)
         """
-        branch_name = f"e2e-test-{test_name}-{int(time.time())}"
+        branch_name = f"e2e-test-{test_name}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
         # Create branch
         sha = self.create_branch(branch_name)
+        if hasattr(self, '_artifact_tracker') and self._artifact_tracker:
+            self._artifact_tracker.add_branch(branch_name)
 
         # Make a commit to trigger PR
         content = file_content or f"# Test {test_name}\nmessage = \"{test_name}\"\n"
@@ -595,9 +643,7 @@ class E2ETestRunner:
             body=build_test_pr_body(test_name),
         )
 
-        # Register artifacts for automatic cleanup
         if hasattr(self, '_artifact_tracker') and self._artifact_tracker:
-            self._artifact_tracker.add_branch(branch_name)
             self._artifact_tracker.add_pr(pr_number)
 
         return branch_name, pr_number, commit_sha

@@ -99,9 +99,21 @@ def test_deploy_workflow_resolves_candidate_from_pr_body() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "terraform-branch-deploy-ref:" in workflow
-    assert "gh api \"repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}\"" in workflow
+    assert "GITHUB_EVENT_PATH" in workflow
+    assert "event.get(\"issue\", {}).get(\"body\")" in workflow
+    assert "gh api \"repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}\"" not in workflow
     assert "vars.TF_BRANCH_DEPLOY_REF" in workflow
     assert ".github/terraform-branch-deploy-ref" in workflow
+
+
+def test_deploy_workflow_uses_runtime_github_token() -> None:
+    """Internal issue-comment deploy runs should use the runtime GitHub token."""
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "secrets.GITHUB_TOKEN" not in workflow
+    assert "${{ github.token }}" in workflow
+    assert "issues: write" in workflow
+    assert "pull-requests: write" in workflow
 
 
 def test_external_workflows_start_with_harden_runner() -> None:

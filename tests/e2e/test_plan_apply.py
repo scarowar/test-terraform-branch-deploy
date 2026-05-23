@@ -128,12 +128,13 @@ class TestApply:
         )
 
         runner.assert_workflow_failure(apply_run)
-        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
         runner.assert_logs_contain(
             apply_run.id,
             "Extra Terraform arguments are only supported on plan commands",
         )
         runner.assert_no_direct_apply_without_plan(apply_run.id)
+        runner.assert_no_lock_ref("dev")
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
 
     @pytest.mark.critical
     def test_apply_without_plan_fails(self, runner: E2ETestRunner) -> None:
@@ -149,9 +150,10 @@ class TestApply:
         run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         
         runner.assert_workflow_failure(run)
-        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
         runner.assert_logs_contain(run.id, "No plan file found")
         runner.assert_no_direct_apply_without_plan(run.id)
+        runner.assert_no_lock_ref("dev")
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
 
 
 @pytest.mark.e2e
@@ -195,9 +197,10 @@ class TestRollback:
         )
 
         runner.assert_workflow_failure(run)
-        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
         runner.assert_logs_contain(
             run.id,
             "Extra Terraform arguments are only supported on plan commands",
         )
         runner.assert_no_direct_apply_without_plan(run.id)
+        runner.assert_no_lock_ref("dev")
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")

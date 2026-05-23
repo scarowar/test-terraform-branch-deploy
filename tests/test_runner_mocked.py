@@ -202,6 +202,7 @@ def test_post_and_wait_posts_comment_and_returns_completed_workflow() -> None:
     assert posted_comments == [".plan to dev"]
     assert run.id == 77
     assert run.is_success
+    assert run.trigger_comment_id == 1001
 
 
 @pytest.mark.mocked
@@ -223,6 +224,7 @@ def test_post_and_wait_ignores_runs_from_other_comments() -> None:
                 200,
                 {
                     "workflow_runs": [
+                        workflow_run(run_id=89, display_title="TBD #42 comment 10010"),
                         workflow_run(run_id=88, display_title="TBD #42 comment 9999"),
                         workflow_run(run_id=77, display_title="TBD #42 comment 1001"),
                     ]
@@ -236,6 +238,38 @@ def test_post_and_wait_ignores_runs_from_other_comments() -> None:
 
     assert calls == 1
     assert run.id == 77
+
+
+@pytest.mark.mocked
+def test_post_and_wait_requires_exact_comment_id_match() -> None:
+    """A run for comment 10010 must not satisfy a wait for comment 1001."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+
+        if request.method == "POST" and path == f"{REPO_PATH}/issues/42/comments":
+            return response(request, 201, {"id": 1001})
+
+        if request.method == "GET" and path == f"{REPO_PATH}/actions/runs":
+            return response(
+                request,
+                200,
+                {
+                    "workflow_runs": [
+                        workflow_run(run_id=89, display_title="TBD #42 comment 10010"),
+                    ]
+                },
+            )
+
+        raise AssertionError(f"Unexpected request: {request.method} {path}")
+
+    with E2ETestRunner(token="token", transport=httpx.MockTransport(handler)) as runner:
+        with pytest.raises(TimeoutError, match="comment_id: 1001"):
+            runner.post_and_wait(
+                42,
+                ".plan to dev",
+                timeout=0.01,
+            )
 
 
 @pytest.mark.mocked
@@ -353,6 +387,84 @@ def test_assert_comment_contains_checks_latest_bot_comment() -> None:
         comment = runner.assert_comment_contains(42, "latest Deployment Results")
 
     assert comment.id == 2
+
+
+@pytest.mark.mocked
+def test_assert_comment_contains_ignores_old_bot_comment_after_new_command() -> None:
+    """A previous bot comment must not satisfy assertions for a later command."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+
+        if request.method == "POST" and path == f"{REPO_PATH}/issues/42/comments":
+            return response(request, 201, {"id": 1001})
+
+        if request.method == "GET" and path == f"{REPO_PATH}/actions/runs":
+            return response(request, 200, {"workflow_runs": [workflow_run(run_id=77)]})
+
+        if request.method == "GET" and path == f"{REPO_PATH}/issues/42/comments":
+            return response(
+                request,
+                200,
+                [
+                    {
+                        "id": 1,
+                        "body": "Deployment Results from an earlier command",
+                        "user": {"login": "github-actions[bot]"},
+                        "created_at": "2000-01-01T00:00:00Z",
+                        "html_url": "https://github.example/comment/1",
+                    }
+                ],
+            )
+
+        raise AssertionError(f"Unexpected request: {request.method} {path}")
+
+    with E2ETestRunner(token="token", transport=httpx.MockTransport(handler)) as runner:
+        runner.post_and_wait(42, ".apply to dev", timeout=1)
+        with pytest.raises(AssertionError, match="No bot comment found after command"):
+            runner.assert_comment_contains(42, "Deployment Results")
+
+
+@pytest.mark.mocked
+def test_get_comments_reads_all_pages() -> None:
+    """Comment assertions should not miss results after the first GitHub page."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == f"{REPO_PATH}/issues/42/comments":
+            page = int(request.url.params.get("page", "1"))
+            if page == 1:
+                return response(
+                    request,
+                    200,
+                    [
+                        {
+                            "id": i,
+                            "body": "old",
+                            "user": {"login": "user"},
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "html_url": f"https://github.example/comment/{i}",
+                        }
+                        for i in range(100)
+                    ],
+                )
+            return response(
+                request,
+                200,
+                [
+                    {
+                        "id": 101,
+                        "body": "latest Deployment Results",
+                        "user": {"login": "github-actions[bot]"},
+                        "created_at": "2026-01-01T00:01:00Z",
+                        "html_url": "https://github.example/comment/101",
+                    }
+                ],
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
+
+    with E2ETestRunner(token="token", transport=httpx.MockTransport(handler)) as runner:
+        comment = runner.assert_comment_contains(42, "latest Deployment Results")
+    assert comment.id == 101
 
 
 @pytest.mark.mocked
