@@ -185,7 +185,8 @@ class TestRollback:
 
         Expected:
         - Workflow detects rollback.
-        - CLI rejects the extra Terraform arguments.
+        - CLI rejects the extra Terraform arguments because Terraform has no
+          deterministic target-only rollback.
         - Rollback does not run a targeted direct apply.
         """
         branch, pr, sha = runner.setup_test_pr("rollback_rejects_args")
@@ -199,7 +200,7 @@ class TestRollback:
         runner.assert_workflow_failure(run)
         runner.assert_logs_contain(
             run.id,
-            "Extra Terraform arguments are only supported on plan commands",
+            "Terraform does not provide a deterministic target-only rollback",
         )
         runner.assert_no_direct_apply_without_plan(run.id)
         runner.assert_no_lock_ref("dev")

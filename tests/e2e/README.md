@@ -70,7 +70,9 @@ Apply safety includes both negative and positive checks:
 missing plans must fail, stale plans must fail, and plain apply after a targeted
 plan must use the saved targeted `.tfplan` file. Configured plan args must
 compose with comment args. Apply and rollback commands must also reject fresh
-Terraform arguments and unsafe configured apply targets.
+Terraform arguments and unsafe configured apply targets. Rollback stays a
+stable-branch apply path; Terraform does not provide a deterministic
+target-only undo.
 
 Stateful checks also assert Branch Deploy lock refs directly:
 successful plan/apply runs must remove non-sticky environment locks, and
