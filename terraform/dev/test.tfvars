@@ -1,2 +1,2 @@
-# Test stale_plan
-message = "stale_plan"
+# Updated content
+message = "updated"
