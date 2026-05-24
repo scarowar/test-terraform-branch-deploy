@@ -80,9 +80,12 @@ def test_e2e_workflow_accepts_pinned_candidate_dispatch() -> None:
     assert "candidate_ref:" in workflow
     assert "source_pr:" in workflow
     assert "stage:" in workflow
+    assert "tracking_comment_id:" in workflow
     assert "main|master" in workflow
     assert "TF_BRANCH_DEPLOY_REF" in workflow
     assert "terraform-branch-deploy/e2e" in workflow
+    assert ".github/terraform-branch-deploy-ref" in workflow
+    assert "tracking_comment_id must be an issue comment id" in workflow
 
 
 def test_e2e_workflow_does_not_mutate_candidate_repo_variable() -> None:
@@ -92,6 +95,27 @@ def test_e2e_workflow_does_not_mutate_candidate_repo_variable() -> None:
     assert "gh variable set TF_BRANCH_DEPLOY_REF" not in workflow
     assert "gh variable delete TF_BRANCH_DEPLOY_REF" not in workflow
     assert 'TF_BRANCH_DEPLOY_REF: ${{ env.CANDIDATE_REF }}' in workflow
+
+
+def test_e2e_workflow_reports_progress_to_source_pr_comment() -> None:
+    """External E2E should update the PR comment that requested the run."""
+    workflow = E2E_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "TRACKING_COMMENT_ID" in workflow
+    assert "issues/comments/${TRACKING_COMMENT_ID}" in workflow
+    assert "External E2E workflow is running" in workflow
+    assert "External E2E ${CERTIFICATION_STAGE} passed" in workflow
+    assert "External E2E ${CERTIFICATION_STAGE} failed" in workflow
+
+
+def test_scheduled_e2e_uses_pinned_candidate_ref_and_critical_stage() -> None:
+    """Scheduled E2E should test a precise candidate without running the full suite."""
+    workflow = E2E_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "github.event_name == 'schedule' && 'critical'" in workflow
+    assert 'CANDIDATE_REF="$(tr -d' in workflow
+    assert ".github/terraform-branch-deploy-ref" in workflow
+    assert 'description: "Terraform Branch Deploy commit SHA or release tag. Empty uses the pinned test repo ref."' in workflow
 
 
 def test_deploy_workflow_resolves_candidate_from_pr_body() -> None:

@@ -1,10 +1,11 @@
 name: E2E Tests
+run-name: "E2E ${{ github.event.inputs.stage || 'critical' }} PR #${{ github.event.inputs.source_pr || 'scheduled' }} comment ${{ github.event.inputs.tracking_comment_id || github.run_id }}"
 
 on:
   workflow_dispatch:
     inputs:
       candidate_ref:
-        description: "Terraform Branch Deploy commit SHA or release tag. Empty uses the existing test repo ref."
+        description: "Terraform Branch Deploy commit SHA or release tag. Empty uses the pinned test repo ref."
         required: false
         default: ""
       source_pr:
@@ -24,6 +25,10 @@ on:
           - args
           - edge
           - slow
+      tracking_comment_id:
+        description: "Source PR issue comment id to update with E2E progress."
+        required: false
+        default: ""
   schedule:
     - cron: '0 6 * * *'  # Daily at 6am UTC
 
@@ -39,7 +44,8 @@ jobs:
     env:
       CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || '' }}
       SOURCE_PR: ${{ github.event.inputs.source_pr || '' }}
-      CERTIFICATION_STAGE: ${{ github.event.inputs.stage || 'all' }}
+      CERTIFICATION_STAGE: ${{ github.event_name == 'schedule' && 'critical' || github.event.inputs.stage || 'all' }}
+      TRACKING_COMMENT_ID: ${{ github.event.inputs.tracking_comment_id || '' }}
       SOURCE_REPOSITORY: scarowar/terraform-branch-deploy
       STATUS_CONTEXT_BASE: terraform-branch-deploy/e2e
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -54,18 +60,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-
-      - name: Install dependencies
-        run: uv sync --frozen --dev
-
-      - name: Validate dispatch inputs
+      - name: Resolve and validate dispatch inputs
         run: |
           case "${CERTIFICATION_STAGE}" in
             all|critical|core|stateful|args|edge|slow) ;;
@@ -76,11 +71,11 @@ jobs:
           esac
 
           if [ -z "${CANDIDATE_REF}" ]; then
-            if [ -n "${SOURCE_PR}" ]; then
-              echo "::error::source_pr requires candidate_ref."
+            if [ ! -f .github/terraform-branch-deploy-ref ]; then
+              echo "::error::.github/terraform-branch-deploy-ref is required when candidate_ref is empty."
               exit 2
             fi
-            exit 0
+            CANDIDATE_REF="$(tr -d '[:space:]' < .github/terraform-branch-deploy-ref)"
           fi
 
           case "${CANDIDATE_REF}" in
@@ -99,6 +94,27 @@ jobs:
             echo "::error::source_pr must be a pull request number."
             exit 2
           fi
+
+          if [ -n "${TRACKING_COMMENT_ID}" ] && ! printf '%s' "${TRACKING_COMMENT_ID}" | grep -Eq '^[0-9]+$'; then
+            echo "::error::tracking_comment_id must be an issue comment id."
+            exit 2
+          fi
+
+          {
+            printf 'CANDIDATE_REF=%s\n' "${CANDIDATE_REF}"
+            printf 'CERTIFICATION_STAGE=%s\n' "${CERTIFICATION_STAGE}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Set up Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
 
       - name: Mark E2E status pending
         if: env.SOURCE_PR != '' && env.CANDIDATE_REF != ''
@@ -119,6 +135,31 @@ jobs:
             -f context="${context}" \
             -f description="External E2E ${CERTIFICATION_STAGE} started for PR #${SOURCE_PR}" \
             -f target_url="${RUN_URL}"
+
+      - name: Update E2E comment running
+        if: env.SOURCE_PR != '' && env.CANDIDATE_REF != '' && env.TRACKING_COMMENT_ID != ''
+        env:
+          GH_TOKEN: ${{ secrets.TFBD_STATUS_TOKEN }}
+        run: |
+          comment_file="${RUNNER_TEMP}/tfbd-e2e-comment.md"
+          cat > "${comment_file}" <<EOF
+          ### External E2E
+
+          - Stage: \`${CERTIFICATION_STAGE}\`
+          - Candidate: \`${CANDIDATE_REF}\`
+          - Run: ${RUN_URL}
+          - Status: running
+
+          External E2E workflow is running.
+
+          <!-- terraform-branch-deploy-e2e:${SOURCE_PR}:${TRACKING_COMMENT_ID} -->
+          EOF
+
+          jq -n --rawfile body "${comment_file}" '{body: $body}' |
+            gh api \
+              --method PATCH \
+              "repos/${SOURCE_REPOSITORY}/issues/comments/${TRACKING_COMMENT_ID}" \
+              --input - >/dev/null
 
       - name: Run E2E Tests
         env:
@@ -161,6 +202,28 @@ jobs:
             -f context="${context}" \
             -f description="${description}" \
             -f target_url="${RUN_URL}"
+
+          if [ -n "${TRACKING_COMMENT_ID}" ]; then
+            comment_file="${RUNNER_TEMP}/tfbd-e2e-comment.md"
+            cat > "${comment_file}" <<EOF
+          ### External E2E
+
+          - Stage: \`${CERTIFICATION_STAGE}\`
+          - Candidate: \`${CANDIDATE_REF}\`
+          - Run: ${RUN_URL}
+          - Status: ${state}
+
+          ${description}.
+
+          <!-- terraform-branch-deploy-e2e:${SOURCE_PR}:${TRACKING_COMMENT_ID} -->
+          EOF
+
+            jq -n --rawfile body "${comment_file}" '{body: $body}' |
+              gh api \
+                --method PATCH \
+                "repos/${SOURCE_REPOSITORY}/issues/comments/${TRACKING_COMMENT_ID}" \
+                --input - >/dev/null || true
+          fi
 
       - name: Upload test results
         if: always()
