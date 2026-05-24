@@ -20,7 +20,9 @@ from tests.e2e.runner import E2ETestRunner, build_test_pr_body
 REPO_PATH = "/repos/scarowar/test-terraform-branch-deploy"
 
 
-def response(request: httpx.Request, status_code: int, data: dict[str, Any]) -> httpx.Response:
+def response(
+    request: httpx.Request, status_code: int, data: dict[str, Any]
+) -> httpx.Response:
     """Create a JSON response bound to the incoming request."""
     return httpx.Response(status_code=status_code, json=data, request=request)
 
@@ -80,7 +82,9 @@ def test_runner_uses_github_api_url_env(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.mocked
-def test_runner_derives_ghe_api_url_from_server_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runner_derives_ghe_api_url_from_server_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Outside Actions, derive the GHES REST API base from GITHUB_SERVER_URL."""
     monkeypatch.delenv("GITHUB_API_URL", raising=False)
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://ghe.example.com/")
@@ -90,7 +94,9 @@ def test_runner_derives_ghe_api_url_from_server_url(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.mocked
-def test_runner_api_url_parameter_overrides_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runner_api_url_parameter_overrides_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Tests can target a custom API host without mutating process env."""
     monkeypatch.setenv("GITHUB_API_URL", "https://env.example.com/api/v3")
 
@@ -123,10 +129,16 @@ def test_setup_test_pr_creates_branch_commit_and_pr_requests(
             assert payload["sha"] == "base-sha"
             return response(request, 201, {})
 
-        if request.method == "GET" and path == f"{REPO_PATH}/contents/terraform/dev/test.tfvars":
+        if (
+            request.method == "GET"
+            and path == f"{REPO_PATH}/contents/terraform/dev/test.tfvars"
+        ):
             return response(request, 404, {})
 
-        if request.method == "PUT" and path == f"{REPO_PATH}/contents/terraform/dev/test.tfvars":
+        if (
+            request.method == "PUT"
+            and path == f"{REPO_PATH}/contents/terraform/dev/test.tfvars"
+        ):
             payload = json.loads(request.content)
             assert payload["message"] == "test: mocked"
             assert payload["branch"].startswith("e2e-test-mocked-")
@@ -152,7 +164,13 @@ def test_setup_test_pr_creates_branch_commit_and_pr_requests(
     assert branch.startswith("e2e-test-mocked-")
     assert pr_number == 42
     assert commit_sha == "commit-sha"
-    assert [request.method for request in requests] == ["GET", "POST", "GET", "PUT", "POST"]
+    assert [request.method for request in requests] == [
+        "GET",
+        "POST",
+        "GET",
+        "PUT",
+        "POST",
+    ]
 
 
 @pytest.mark.mocked
@@ -203,6 +221,70 @@ def test_post_and_wait_posts_comment_and_returns_completed_workflow() -> None:
     assert run.id == 77
     assert run.is_success
     assert run.trigger_comment_id == 1001
+
+
+@pytest.mark.mocked
+def test_post_and_wait_retries_branch_deploy_transient_auth_failure() -> None:
+    """A branch-deploy permission-check 401 should get one fresh comment retry."""
+    posted_comments: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+
+        if request.method == "POST" and path == f"{REPO_PATH}/issues/42/comments":
+            payload = json.loads(request.content)
+            posted_comments.append(payload["body"])
+            return response(request, 201, {"id": 1000 + len(posted_comments)})
+
+        if request.method == "GET" and path == f"{REPO_PATH}/actions/runs":
+            if len(posted_comments) == 1:
+                return response(
+                    request,
+                    200,
+                    {
+                        "workflow_runs": [
+                            workflow_run(
+                                run_id=77,
+                                conclusion="failure",
+                                display_title="TBD #42 comment 1001",
+                            )
+                        ]
+                    },
+                )
+            return response(
+                request,
+                200,
+                {
+                    "workflow_runs": [
+                        workflow_run(
+                            run_id=88,
+                            conclusion="success",
+                            display_title="TBD #42 comment 1002",
+                        )
+                    ]
+                },
+            )
+
+        if request.method == "GET" and path == f"{REPO_PATH}/actions/runs/77/logs":
+            return httpx.Response(
+                200,
+                text=(
+                    "Run github/branch-deploy@fded0351b6b79f854b335c11b3d93063461dd288\n"
+                    "HttpError: Bad credentials - https://docs.github.com/rest\n"
+                    "at validPermissions"
+                ),
+                request=request,
+            )
+
+        raise AssertionError(f"Unexpected request: {request.method} {path}")
+
+    with E2ETestRunner(token="token", transport=httpx.MockTransport(handler)) as runner:
+        run = runner.post_and_wait(42, ".apply to dev", timeout=1)
+
+    assert posted_comments == [".apply to dev", ".apply to dev"]
+    assert run.id == 88
+    assert run.is_success
+    assert run.trigger_comment_id == 1002
 
 
 @pytest.mark.mocked
@@ -303,7 +385,10 @@ def test_cleanup_helpers_close_pr_and_ignore_missing_branch() -> None:
             assert payload == {"state": "closed"}
             return response(request, 200, {})
 
-        if request.method == "DELETE" and request.url.path == f"{REPO_PATH}/git/refs/heads/test-branch":
+        if (
+            request.method == "DELETE"
+            and request.url.path == f"{REPO_PATH}/git/refs/heads/test-branch"
+        ):
             return response(request, 422, {"message": "Reference does not exist"})
 
         raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
@@ -332,7 +417,9 @@ def test_lock_ref_helpers_check_assert_and_delete_refs() -> None:
         calls.append((request.method, path))
 
         if request.method == "GET" and path in existing:
-            return response(request, 200, {"ref": f"refs/heads/{path.rsplit('/', 1)[-1]}"})
+            return response(
+                request, 200, {"ref": f"refs/heads/{path.rsplit('/', 1)[-1]}"}
+            )
 
         if request.method == "DELETE" and path in existing:
             existing.remove(path)
@@ -360,7 +447,10 @@ def test_assert_comment_contains_checks_latest_bot_comment() -> None:
     """Comment assertions should inspect the newest bot comment first."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/issues/42/comments":
+        if (
+            request.method == "GET"
+            and request.url.path == f"{REPO_PATH}/issues/42/comments"
+        ):
             return response(
                 request,
                 200,
@@ -430,7 +520,10 @@ def test_get_comments_reads_all_pages() -> None:
     """Comment assertions should not miss results after the first GitHub page."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/issues/42/comments":
+        if (
+            request.method == "GET"
+            and request.url.path == f"{REPO_PATH}/issues/42/comments"
+        ):
             page = int(request.url.params.get("page", "1"))
             if page == 1:
                 return response(
@@ -472,7 +565,10 @@ def test_get_workflow_logs_decodes_zip_payload() -> None:
     """Workflow logs are returned by GitHub as a zip archive."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/actions/runs/77/logs":
+        if (
+            request.method == "GET"
+            and request.url.path == f"{REPO_PATH}/actions/runs/77/logs"
+        ):
             return httpx.Response(
                 200,
                 content=zip_logs({"1_build.txt": "$ terraform plan\n"}),
@@ -492,10 +588,15 @@ def test_assert_no_direct_apply_without_plan_rejects_unsafe_apply() -> None:
     """Direct terraform apply without a .tfplan file is unsafe."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/actions/runs/77/logs":
+        if (
+            request.method == "GET"
+            and request.url.path == f"{REPO_PATH}/actions/runs/77/logs"
+        ):
             return httpx.Response(
                 200,
-                content=zip_logs({"1_apply.txt": "$ terraform apply -input=false -auto-approve\n"}),
+                content=zip_logs(
+                    {"1_apply.txt": "$ terraform apply -input=false -auto-approve\n"}
+                ),
                 request=request,
             )
         raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
@@ -510,7 +611,10 @@ def test_assert_logs_do_not_contain_rejects_matching_logs() -> None:
     """Negative log assertions should fail when a pattern is present."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/actions/runs/77/logs":
+        if (
+            request.method == "GET"
+            and request.url.path == f"{REPO_PATH}/actions/runs/77/logs"
+        ):
             return httpx.Response(
                 200,
                 content=zip_logs({"1_init.txt": "$ terraform init -input=false\n"}),
@@ -528,7 +632,10 @@ def test_assert_apply_used_plan_accepts_saved_plan_apply() -> None:
     """Applying a saved .tfplan file is the expected non-rollback path."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET" and request.url.path == f"{REPO_PATH}/actions/runs/77/logs":
+        if (
+            request.method == "GET"
+            and request.url.path == f"{REPO_PATH}/actions/runs/77/logs"
+        ):
             return httpx.Response(
                 200,
                 content=zip_logs(

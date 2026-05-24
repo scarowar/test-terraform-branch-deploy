@@ -35,6 +35,11 @@ CANDIDATE_REF_RE = re.compile(
     r"^(v[0-9]+(\.[0-9]+){0,2}(-[0-9A-Za-z.-]+)?|[0-9a-f]{40})$"
 )
 CANDIDATE_REF_MARKER = "terraform-branch-deploy-ref"
+BRANCH_DEPLOY_TRANSIENT_AUTH_PATTERNS = (
+    "HttpError: Bad credentials - https://docs.github.com/rest",
+    "validPermissions",
+    "github/branch-deploy",
+)
 
 
 def candidate_ref_from_env() -> str:
@@ -339,22 +344,33 @@ class E2ETestRunner:
         timeout: int = 300,
     ) -> WorkflowRun:
         """Post a comment and wait for the triggered workflow to complete.
-        
+
         This is the preferred method for tests - it handles the timestamp
         tracking automatically.
         """
-        before_comment = datetime.now(timezone.utc).isoformat()
-        
-        comment_id = self.post_comment(pr_number, command)
-        self._last_command_timestamp_by_pr[pr_number] = before_comment
-        
-        run = self.wait_for_workflow(
-            after_timestamp=before_comment,
-            timeout=timeout,
-            comment_id=comment_id,
-        )
-        run.trigger_comment_id = comment_id
-        run.triggered_after = before_comment
+        for attempt in range(2):
+            before_comment = datetime.now(timezone.utc).isoformat()
+
+            comment_id = self.post_comment(pr_number, command)
+            self._last_command_timestamp_by_pr[pr_number] = before_comment
+
+            run = self.wait_for_workflow(
+                after_timestamp=before_comment,
+                timeout=timeout,
+                comment_id=comment_id,
+            )
+            run.trigger_comment_id = comment_id
+            run.triggered_after = before_comment
+
+            if attempt == 0 and self.is_retryable_branch_deploy_auth_failure(run):
+                print(
+                    "Retrying command after branch-deploy permission check "
+                    f"returned transient Bad credentials: {run.html_url}"
+                )
+                continue
+
+            return run
+
         return run
 
     def get_comments(self, pr_number: int) -> list[PRComment]:
@@ -464,7 +480,7 @@ class E2ETestRunner:
             TimeoutError: If workflow doesn't complete in time
         """
         start = time.time()
-        
+
         # Use current time if no timestamp provided
         if after_timestamp is None:
             after_dt = datetime.now(timezone.utc)
@@ -476,22 +492,22 @@ class E2ETestRunner:
 
         while time.time() - start < timeout:
             runs = self.get_workflow_runs(per_page=20)
-            
+
             for run in runs:
                 # Parse the created_at timestamp
                 created = datetime.fromisoformat(run.created_at.replace("Z", "+00:00"))
-                
+
                 # Only consider runs created after our timestamp
                 if created > after_dt and run.matches_comment(comment_id):
                     if target_run_id is None:
                         target_run_id = run.id
-                    
+
                     # If this is our target run, check if complete
                     if run.id == target_run_id:
                         if run.is_complete:
                             return run
                         break  # Found our run but it's not complete yet
-            
+
             time.sleep(poll_interval)
 
         msg = f"Workflow did not complete within {timeout}s"
@@ -522,6 +538,14 @@ class E2ETestRunner:
         except zipfile.BadZipFile:
             return resp.text
 
+    def is_retryable_branch_deploy_auth_failure(self, run: WorkflowRun) -> bool:
+        """Return whether a run hit branch-deploy's transient permission-check 401."""
+        if not run.is_failure:
+            return False
+
+        logs = self.get_workflow_logs(run.id)
+        return all(pattern in logs for pattern in BRANCH_DEPLOY_TRANSIENT_AUTH_PATTERNS)
+
     def assert_logs_contain(self, run_id: int, pattern: str) -> str:
         """Assert that workflow logs contain a string or regex pattern."""
         logs = self.get_workflow_logs(run_id)
@@ -533,7 +557,9 @@ class E2ETestRunner:
         """Assert that workflow logs do not contain a string or regex pattern."""
         logs = self.get_workflow_logs(run_id)
         if pattern in logs or re.search(pattern, logs):
-            raise AssertionError(f"Pattern '{pattern}' unexpectedly found in workflow logs")
+            raise AssertionError(
+                f"Pattern '{pattern}' unexpectedly found in workflow logs"
+            )
         return logs
 
     def assert_no_direct_apply_without_plan(self, run_id: int) -> str:
@@ -574,7 +600,9 @@ class E2ETestRunner:
         after_timestamp: str | None = None,
     ) -> PRComment:
         """Assert that a PR comment contains a pattern."""
-        after_timestamp = after_timestamp or self._last_command_timestamp_by_pr.get(pr_number)
+        after_timestamp = after_timestamp or self._last_command_timestamp_by_pr.get(
+            pr_number
+        )
         after_dt = _parse_github_timestamp(after_timestamp) if after_timestamp else None
         comments = self.get_comments(pr_number)
 
@@ -623,12 +651,12 @@ class E2ETestRunner:
         branch_name = f"e2e-test-{test_name}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
         # Create branch
-        sha = self.create_branch(branch_name)
-        if hasattr(self, '_artifact_tracker') and self._artifact_tracker:
+        self.create_branch(branch_name)
+        if hasattr(self, "_artifact_tracker") and self._artifact_tracker:
             self._artifact_tracker.add_branch(branch_name)
 
         # Make a commit to trigger PR
-        content = file_content or f"# Test {test_name}\nmessage = \"{test_name}\"\n"
+        content = file_content or f'# Test {test_name}\nmessage = "{test_name}"\n'
         commit_sha = self.commit_file(
             branch=branch_name,
             path="terraform/dev/test.tfvars",
@@ -643,14 +671,14 @@ class E2ETestRunner:
             body=build_test_pr_body(test_name),
         )
 
-        if hasattr(self, '_artifact_tracker') and self._artifact_tracker:
+        if hasattr(self, "_artifact_tracker") and self._artifact_tracker:
             self._artifact_tracker.add_pr(pr_number)
 
         return branch_name, pr_number, commit_sha
 
     def cleanup_test_pr(self, branch_name: str, pr_number: int) -> None:
         """Clean up test resources.
-        
+
         Note: With automatic cleanup enabled in conftest.py, you typically
         don't need to call this manually. It's kept for backwards compatibility.
         """
@@ -689,13 +717,16 @@ class E2ETestRunner:
         try:
             # Record timestamp BEFORE posting comment
             from datetime import datetime, timezone
+
             before_comment = datetime.now(timezone.utc).isoformat()
 
             # Post command
             self.post_comment(pr_number, command)
 
             # Wait for workflow triggered after our comment
-            run = self.wait_for_workflow(after_timestamp=before_comment, timeout=timeout)
+            run = self.wait_for_workflow(
+                after_timestamp=before_comment, timeout=timeout
+            )
 
             # Verify result
             if expect_success:
