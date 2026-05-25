@@ -105,6 +105,57 @@ jobs:
             printf 'CERTIFICATION_STAGE=%s\n' "${CERTIFICATION_STAGE}"
           } >> "${GITHUB_ENV}"
 
+      - name: Validate source PR status target
+        if: env.SOURCE_PR != '' && env.CANDIDATE_REF != ''
+        env:
+          GH_TOKEN: ${{ secrets.TFBD_STATUS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::TFBD_STATUS_TOKEN is required when source_pr is provided."
+            exit 2
+          fi
+
+          pr_json="$(
+            gh api \
+              "repos/${SOURCE_REPOSITORY}/pulls/${SOURCE_PR}"
+          )"
+          state="$(jq -r '.state' <<< "${pr_json}")"
+          base_ref="$(jq -r '.base.ref' <<< "${pr_json}")"
+          head_sha="$(jq -r '.head.sha' <<< "${pr_json}")"
+
+          if [ "${state}" != "open" ]; then
+            echo "::error::Source pull request #${SOURCE_PR} is not open."
+            exit 2
+          fi
+
+          if [ "${base_ref}" != "main" ]; then
+            echo "::error::Source pull request #${SOURCE_PR} does not target main."
+            exit 2
+          fi
+
+          if [ "${head_sha}" != "${CANDIDATE_REF}" ]; then
+            echo "::error::candidate_ref does not match source pull request head."
+            exit 2
+          fi
+
+          if [ -n "${TRACKING_COMMENT_ID}" ]; then
+            comment_body="$(
+              gh api \
+                "repos/${SOURCE_REPOSITORY}/issues/comments/${TRACKING_COMMENT_ID}" \
+                --jq '.body'
+            )"
+            if ! grep -Fq "terraform-branch-deploy-e2e:${SOURCE_PR}:" <<< "${comment_body}"; then
+              echo "::error::tracking_comment_id does not belong to the source pull request E2E request."
+              exit 2
+            fi
+            if ! grep -Fq -- "- Candidate: \`${CANDIDATE_REF}\`" <<< "${comment_body}"; then
+              echo "::error::tracking_comment_id does not match candidate_ref."
+              exit 2
+            fi
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
         with:

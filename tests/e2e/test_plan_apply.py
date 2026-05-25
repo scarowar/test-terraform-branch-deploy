@@ -164,18 +164,28 @@ class TestRollback:
     def test_rollback_to_main(self, runner: E2ETestRunner) -> None:
         """
         .apply main to dev - rollback to stable branch.
-        
+
         Expected:
         - Workflow detects rollback command
         - Applies from main branch directly (no plan file required)
+        - Does not consume a stale saved plan for the PR branch
         - Workflow succeeds
         """
         branch, pr, sha = runner.setup_test_pr("rollback")
-        
+
+        plan_run = runner.post_and_wait(
+            pr,
+            ".plan to dev | -target=local_file.test",
+            timeout=300,
+        )
+        runner.assert_workflow_success(plan_run)
+
         run = runner.post_and_wait(pr, ".apply main to dev", timeout=300)
-        
+
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
+        runner.assert_logs_contain(run.id, "Rollback detected")
+        runner.assert_logs_do_not_contain(run.id, "Plan was created with args")
 
     @pytest.mark.critical
     @pytest.mark.args

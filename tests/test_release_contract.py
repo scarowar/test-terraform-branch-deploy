@@ -102,6 +102,10 @@ def test_e2e_workflow_reports_progress_to_source_pr_comment() -> None:
     workflow = E2E_WORKFLOW.read_text(encoding="utf-8")
 
     assert "TRACKING_COMMENT_ID" in workflow
+    assert "Validate source PR status target" in workflow
+    assert "TFBD_STATUS_TOKEN is required when source_pr is provided" in workflow
+    assert "candidate_ref does not match source pull request head" in workflow
+    assert "tracking_comment_id does not belong to the source pull request E2E request" in workflow
     assert "issues/comments/${TRACKING_COMMENT_ID}" in workflow
     assert "External E2E workflow is running" in workflow
     assert "External E2E ${CERTIFICATION_STAGE} passed" in workflow
