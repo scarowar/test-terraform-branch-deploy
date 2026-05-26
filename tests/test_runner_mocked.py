@@ -186,6 +186,26 @@ def test_pr_body_includes_candidate_ref_marker(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.mocked
+def test_create_pr_defaults_to_candidate_ref_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Manual E2E PR creation should still pin the candidate action ref."""
+    candidate_ref = "0123456789abcdef0123456789abcdef01234567"
+    monkeypatch.setenv("TF_BRANCH_DEPLOY_REF", candidate_ref)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == f"{REPO_PATH}/pulls"
+        payload = json.loads(request.content)
+        assert payload["body"] == (
+            "Automated E2E test for E2E: Init Failure\n\n"
+            f"<!-- terraform-branch-deploy-ref: {candidate_ref} -->"
+        )
+        return response(request, 201, {"number": 42})
+
+    with E2ETestRunner(token="token", transport=httpx.MockTransport(handler)) as runner:
+        assert runner.create_pr(branch="branch", title="E2E: Init Failure") == 42
+
+
+@pytest.mark.mocked
 def test_pr_body_rejects_unpinned_candidate_ref(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

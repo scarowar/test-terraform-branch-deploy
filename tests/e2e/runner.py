@@ -295,10 +295,13 @@ class E2ETestRunner:
         self,
         branch: str,
         title: str,
-        body: str = "",
+        body: str | None = None,
         base: str | None = None,
     ) -> int:
         """Create a pull request. Returns PR number."""
+        if body is None:
+            body = build_test_pr_body(title)
+
         resp = self.client.post(
             f"/repos/{self.repo}/pulls",
             json={
