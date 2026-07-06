@@ -30,7 +30,7 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: '0 6 * * *'  # Daily at 6am UTC
+    - cron: '0 6 * * 1'  # Weekly on Monday at 6am UTC (critical stage only)
 
 concurrency:
   group: e2e-tests
@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
     env:
       CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || '' }}
       SOURCE_PR: ${{ github.event.inputs.source_pr || '' }}
@@ -285,3 +286,51 @@ jobs:
             .pytest_cache/
             *.log
           retention-days: 7
+
+      # Scheduled runs have no source PR to report status on, so a failure
+      # would otherwise go unnoticed. Alert the maintainer through an issue
+      # in this repo (deduped via the e2e-alert label). Dispatch runs are
+      # watched interactively and already update PR statuses.
+      - name: Alert maintainer on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh label create e2e-alert \
+            --repo "${GITHUB_REPOSITORY}" \
+            --description "Scheduled E2E certification failure" \
+            --color D93F0B \
+            --force
+
+          existing="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --label e2e-alert \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          body_file="${RUNNER_TEMP}/tfbd-e2e-alert.md"
+          cat > "${body_file}" <<EOF
+          @scarowar Scheduled E2E certification deviated from expected behavior.
+
+          - Stage: \`${CERTIFICATION_STAGE}\`
+          - Candidate: \`${CANDIDATE_REF:-unresolved}\`
+          - Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          - Run: ${RUN_URL}
+          EOF
+
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body-file "${body_file}"
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Scheduled E2E failure (${CERTIFICATION_STAGE})" \
+              --label e2e-alert \
+              --body-file "${body_file}"
+          fi

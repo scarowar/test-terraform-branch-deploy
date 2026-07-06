@@ -18,6 +18,7 @@ permissions:
   contents: write
   checks: read
   statuses: read
+  actions: read
 
 concurrency:
   group: terraform-${{ github.event.issue.number }}
