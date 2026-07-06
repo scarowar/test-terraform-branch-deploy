@@ -56,12 +56,13 @@ class TestApply:
         - Both workflows succeed
         """
         branch, pr, sha = runner.setup_test_pr("apply_after_plan")
-        
+
         # First: plan
         plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
         runner.assert_workflow_success(plan_run)
+        runner.assert_plan_artifacts_exist("dev", sha)
         runner.assert_no_lock_ref("dev")
-        
+
         # Then: apply
         apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
         runner.assert_workflow_success(apply_run)
@@ -148,12 +149,59 @@ class TestApply:
         branch, pr, sha = runner.setup_test_pr("apply_no_plan")
         
         run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
-        
+
         runner.assert_workflow_failure(run)
-        runner.assert_logs_contain(run.id, "No plan file found")
+        runner.assert_logs_contain(run.id, "No saved plan artifact found")
         runner.assert_no_direct_apply_without_plan(run.id)
         runner.assert_no_lock_ref("dev")
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
+
+    @pytest.mark.critical
+    def test_apply_refuses_superseded_plan_after_failed_replan(
+        self, runner: E2ETestRunner
+    ) -> None:
+        """
+        Incident regression: a superseded targeted plan must never be applied.
+
+        Scenario (the production incident class this guards against):
+        1. Targeted .plan succeeds - plan A is persisted.
+        2. A second .plan for the SAME commit fails (undeclared -var), so its
+           intent record exists but no plan artifact was produced.
+        3. Plain .apply must refuse - applying plan A now would execute
+           arguments that no longer match the latest plan command.
+
+        Expected:
+        - Apply fails and posts an actionable comment
+        - Logs state the latest plan attempt produced no applyable plan
+        - No terraform apply runs at all
+        """
+        branch, pr, sha = runner.setup_test_pr("superseded_plan")
+
+        plan_a = runner.post_and_wait(
+            pr,
+            ".plan to dev | -target=local_file.test",
+            timeout=300,
+        )
+        runner.assert_workflow_success(plan_a)
+        runner.assert_plan_artifacts_exist("dev", sha)
+
+        # Same commit, failing plan: -var for a variable the config does not
+        # declare makes terraform plan error after the intent is recorded.
+        plan_b = runner.post_and_wait(
+            pr,
+            ".plan to dev | -var=e2e_undeclared_guardrail_var=1",
+            timeout=300,
+        )
+        runner.assert_workflow_failure(plan_b)
+        runner.assert_comment_contains(pr, "Cannot proceed with deployment")
+
+        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+
+        runner.assert_workflow_failure(apply_run)
+        runner.assert_logs_contain(apply_run.id, "did not produce an applyable plan")
+        runner.assert_no_direct_apply_without_plan(apply_run.id)
+        runner.assert_no_lock_ref("dev")
+        runner.assert_comment_contains(pr, "did not produce an applyable plan")
 
 
 @pytest.mark.e2e

@@ -581,6 +581,31 @@ class E2ETestRunner:
         self.assert_no_direct_apply_without_plan(run_id)
         return logs
 
+    def assert_plan_artifacts_exist(self, environment: str, sha: str) -> None:
+        """Assert a plan run persisted both its intent record and plan artifact.
+
+        Since terraform-branch-deploy v0.3.0, plans persist as workflow
+        artifacts: an intent record (uploaded before Terraform runs) plus the
+        plan itself, both named tfplan[-intent]-{env}-{sha}-... The apply path
+        resolves the plan only through the newest intent.
+        """
+        resp = self.client.get(
+            f"/repos/{self.repo}/actions/artifacts",
+            params={"per_page": 100},
+        )
+        resp.raise_for_status()
+        names = [
+            artifact["name"]
+            for artifact in resp.json().get("artifacts", [])
+            if not artifact.get("expired")
+        ]
+        plan_prefix = f"tfplan-{environment}-{sha}-"
+        intent_prefix = f"tfplan-intent-{environment}-{sha}-"
+        if not any(name.startswith(plan_prefix) for name in names):
+            raise AssertionError(f"No plan artifact found with prefix {plan_prefix}")
+        if not any(name.startswith(intent_prefix) for name in names):
+            raise AssertionError(f"No plan intent artifact found with prefix {intent_prefix}")
+
     # === Assertions ===
 
     def assert_workflow_success(self, run: WorkflowRun) -> None:

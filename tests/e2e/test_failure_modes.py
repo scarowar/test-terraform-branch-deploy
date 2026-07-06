@@ -48,7 +48,7 @@ class TestFailureModes:
         3. Apply to dev (should fail - plan is for wrong SHA)
         
         Expected:
-        - Apply fails with "No plan file found for this SHA"
+        - Apply fails with "No saved plan artifact found" for the new SHA
         """
         branch, pr, sha = runner.setup_test_pr("stale_plan")
         
@@ -69,7 +69,7 @@ class TestFailureModes:
         
         runner.assert_workflow_failure(apply_run)
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
-        runner.assert_logs_contain(apply_run.id, "No plan file found")
+        runner.assert_logs_contain(apply_run.id, "No saved plan artifact found")
         runner.assert_no_direct_apply_without_plan(apply_run.id)
 
     @pytest.mark.critical

@@ -6,6 +6,8 @@ Removes:
 - Branches matching e2e-test-* pattern
 - PRs with titles starting with "E2E"
 - Stale lock branches (*-branch-deploy-lock)
+- Saved plan workflow artifacts (tfplan-* / tfplan-intent-*); requires
+  actions: write on the token
 
 Usage:
     python scripts/cleanup-e2e.py                    # Dry run (shows what would be deleted)
@@ -125,6 +127,37 @@ def list_prs(client: httpx.Client, repo: str, state: str = "open") -> list[dict]
     return prs
 
 
+def list_plan_artifacts(client: httpx.Client, repo: str) -> list[dict]:
+    """List saved plan workflow artifacts (plans and intent records)."""
+    artifacts = []
+    page = 1
+
+    while True:
+        resp = client.get(
+            f"/repos/{repo}/actions/artifacts",
+            params={"per_page": 100, "page": page},
+        )
+        resp.raise_for_status()
+        data = resp.json().get("artifacts", [])
+
+        if not data:
+            break
+
+        for artifact in data:
+            if artifact["name"].startswith("tfplan-") and not artifact.get("expired"):
+                artifacts.append({"id": artifact["id"], "name": artifact["name"]})
+
+        page += 1
+
+    return artifacts
+
+
+def delete_artifact(client: httpx.Client, repo: str, artifact_id: int) -> bool:
+    """Delete a workflow artifact."""
+    resp = client.delete(f"/repos/{repo}/actions/artifacts/{artifact_id}")
+    return resp.status_code == 204
+
+
 def delete_branch(client: httpx.Client, repo: str, branch: str) -> bool:
     """Delete a branch."""
     resp = client.delete(f"/repos/{repo}/git/refs/heads/{branch}")
@@ -159,6 +192,9 @@ def main():
     # Find e2e PRs
     open_prs = list_prs(client, repo, "open")
     closed_prs = list_prs(client, repo, "closed") if args.all else []
+
+    # Find saved plan workflow artifacts
+    plan_artifacts = list_plan_artifacts(client, repo)
     
     # Summary
     print("=" * 60)
@@ -190,7 +226,19 @@ def main():
         if len(closed_prs) > 5:
             print(f"   ... and {len(closed_prs) - 5} more")
     
-    total = len(e2e_branches) + len(lock_branches) + len(open_prs) + len(closed_prs)
+    print(f"\n📦 Saved Plan Artifacts ({len(plan_artifacts)}):")
+    for artifact in plan_artifacts[:10]:
+        print(f"   - {artifact['name']}")
+    if len(plan_artifacts) > 10:
+        print(f"   ... and {len(plan_artifacts) - 10} more")
+
+    total = (
+        len(e2e_branches)
+        + len(lock_branches)
+        + len(open_prs)
+        + len(closed_prs)
+        + len(plan_artifacts)
+    )
     print(f"\n📊 Total artifacts: {total}")
     
     if not args.execute:
@@ -219,7 +267,15 @@ def main():
             print("✅")
         else:
             print("❌ (may already be deleted)")
-    
+
+    # Delete saved plan workflow artifacts
+    for artifact in plan_artifacts:
+        print(f"   Deleting artifact {artifact['name']}...", end=" ")
+        if delete_artifact(client, repo, artifact["id"]):
+            print("✅")
+        else:
+            print("❌ (token may lack actions: write)")
+
     print(f"\n✨ Cleanup complete!")
 
 
