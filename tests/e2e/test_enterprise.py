@@ -42,7 +42,7 @@ class TestRecovery:
             message="test: add failing code",
         )
         
-        sha = runner.commit_file(
+        runner.commit_file(
             branch=branch,
             path="terraform/dev/test.tfvars",
             content="retry_test = true\n",
@@ -53,7 +53,7 @@ class TestRecovery:
         
         try:
             # First plan should fail
-            run1 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+            run1 = runner.post_and_wait(pr, ".plan to dev")
             runner.assert_workflow_failure(run1)
             runner.assert_comment_contains(pr, "Cannot proceed with deployment")
             
@@ -66,7 +66,7 @@ class TestRecovery:
             )
             
             # Retry should succeed
-            run2 = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+            run2 = runner.post_and_wait(pr, ".plan to dev")
             runner.assert_workflow_success(run2)
         finally:
             runner.cleanup_test_pr(branch, pr)
@@ -85,11 +85,11 @@ class TestMultiEnvironment:
         branch, pr, sha = runner.setup_test_pr("multi_env")
         
         # Plan to dev
-        dev_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        dev_run = runner.post_and_wait(pr, ".plan to dev")
         runner.assert_workflow_success(dev_run)
         
         # Plan to prod
-        prod_run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
+        prod_run = runner.post_and_wait(pr, ".plan to prod")
         runner.assert_workflow_success(prod_run)
 
 
@@ -109,7 +109,6 @@ class TestComplexParsing:
         run = runner.post_and_wait(
             pr,
             ".plan to dev | -var='connection_string=postgres://user:p@host/db?sslmode=require&x=y'",
-            timeout=300
         )
         
         runner.assert_workflow_success(run)
@@ -154,7 +153,6 @@ class TestComplexParsing:
         run = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
-            timeout=300,
         )
 
         runner.assert_workflow_success(run)

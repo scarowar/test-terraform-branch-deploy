@@ -23,6 +23,12 @@ from typing import Any
 import httpx
 
 
+# Wait budgets for triggered workflow runs. GitHub-hosted runner queue spikes
+# can exceed five minutes; a too-small budget fails an otherwise healthy test
+# and forces a full suite re-run. Override per environment when needed.
+DEPLOY_TIMEOUT = int(os.environ.get("E2E_DEPLOY_TIMEOUT", "600"))
+QUICK_TIMEOUT = int(os.environ.get("E2E_QUICK_TIMEOUT", "300"))
+
 E2E_COMMIT_AUTHOR_NAME = os.environ.get(
     "E2E_COMMIT_AUTHOR_NAME",
     "terraform-branch-deploy-e2e",
@@ -344,7 +350,7 @@ class E2ETestRunner:
         self,
         pr_number: int,
         command: str,
-        timeout: int = 300,
+        timeout: int = DEPLOY_TIMEOUT,
     ) -> WorkflowRun:
         """Post a comment and wait for the triggered workflow to complete.
 
@@ -463,7 +469,7 @@ class E2ETestRunner:
     def wait_for_workflow(
         self,
         after_timestamp: str | None = None,
-        timeout: int = 300,
+        timeout: int = DEPLOY_TIMEOUT,
         poll_interval: int = 10,
         comment_id: int | None = None,
     ) -> WorkflowRun:
@@ -725,7 +731,7 @@ class E2ETestRunner:
         command: str,
         expect_success: bool = True,
         comment_pattern: str | None = None,
-        timeout: int = 300,
+        timeout: int = DEPLOY_TIMEOUT,
     ) -> tuple[WorkflowRun, PRComment | None]:
         """
         Run a complete E2E test.

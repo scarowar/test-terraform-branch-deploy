@@ -283,8 +283,9 @@ jobs:
         with:
           name: e2e-test-results
           path: |
-            .pytest_cache/
+            results/
             *.log
+          if-no-files-found: warn
           retention-days: 7
 
       # Scheduled runs have no source PR to report status on, so a failure

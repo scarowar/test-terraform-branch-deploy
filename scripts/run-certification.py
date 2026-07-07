@@ -136,13 +136,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_stage(stage: Stage) -> None:
-    """Run one stage and stop on failure."""
+def stage_command(stage: Stage) -> list[str]:
+    """Return the stage command with shared pytest reporting/retry flags."""
+    command = list(stage.command)
+    if "pytest" not in command:
+        return command
+    command.append(f"--junitxml=results/{stage.name}.xml")
+    # Retry only workflow-wait timeouts (runner queue spikes), never real
+    # assertion failures. Each E2E test posts its own commands, so a retried
+    # test is self-contained.
+    command.extend(["--reruns", "1", "--only-rerun", "TimeoutError"])
+    return command
+
+
+def run_stage(stage: Stage) -> int:
+    """Run one stage and return its exit code."""
+    command = stage_command(stage)
     print(f"\n==> {stage.name}", flush=True)
-    print(" ".join(stage.command), flush=True)
-    result = subprocess.run(stage.command, check=False)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    print(" ".join(command), flush=True)
+    return subprocess.run(command, check=False).returncode
 
 
 def main() -> int:
@@ -160,13 +172,16 @@ def main() -> int:
             return 2
 
         if args.cleanup_first:
-            run_stage(
+            cleanup_rc = run_stage(
                 Stage(
                     name="cleanup",
                     command=[sys.executable, "scripts/cleanup-e2e.py", "--execute"],
                     mutates_github=True,
                 )
             )
+            if cleanup_rc != 0:
+                # Later stages would run against dirty state; stop here.
+                return cleanup_rc
         stages.extend(
             stage
             for stage in LIVE_STAGES
@@ -176,9 +191,27 @@ def main() -> int:
         print("--cleanup-first requires --live.", file=sys.stderr)
         return 2
 
+    # Run every stage even after a failure so one transient failure does not
+    # hide the results of the remaining stages, then fail with a summary.
+    executed: list[str] = []
+    failed: list[str] = []
     for stage in stages:
-        run_stage(stage)
+        executed.append(stage.name)
+        if run_stage(stage) != 0:
+            failed.append(stage.name)
+            if stage.name == "local-contract":
+                # The test harness itself is broken; live results would be
+                # meaningless and expensive.
+                break
 
+    print("\n==> certification summary", flush=True)
+    for name in executed:
+        outcome = "FAILED" if name in failed else "passed"
+        print(f"  {name}: {outcome}", flush=True)
+
+    if failed:
+        print(f"\n{len(failed)} stage(s) failed: {', '.join(failed)}", file=sys.stderr)
+        return 1
     return 0
 
 

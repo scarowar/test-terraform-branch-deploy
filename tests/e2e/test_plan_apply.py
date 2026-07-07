@@ -33,7 +33,7 @@ class TestPlan:
         """
         branch, pr, sha = runner.setup_test_pr("plan_prod")
         
-        run = runner.post_and_wait(pr, ".plan to prod", timeout=300)
+        run = runner.post_and_wait(pr, ".plan to prod")
         
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
@@ -58,13 +58,13 @@ class TestApply:
         branch, pr, sha = runner.setup_test_pr("apply_after_plan")
 
         # First: plan
-        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        plan_run = runner.post_and_wait(pr, ".plan to dev")
         runner.assert_workflow_success(plan_run)
         runner.assert_plan_artifacts_exist("dev", sha)
         runner.assert_no_lock_ref("dev")
 
         # Then: apply
-        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        apply_run = runner.post_and_wait(pr, ".apply to dev")
         runner.assert_workflow_success(apply_run)
         runner.assert_comment_contains(pr, "Deployment Results")
         runner.assert_apply_used_plan(apply_run.id, f"tfplan-dev-{sha[:8]}.tfplan")
@@ -87,12 +87,11 @@ class TestApply:
         plan_run = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
-            timeout=300,
         )
         runner.assert_workflow_success(plan_run)
         runner.assert_logs_contain(plan_run.id, "-target=local_file.test")
 
-        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        apply_run = runner.post_and_wait(pr, ".apply to dev")
         runner.assert_workflow_success(apply_run)
         runner.assert_apply_used_plan(apply_run.id, f"tfplan-dev-{sha[:8]}.tfplan")
         runner.assert_logs_contain(
@@ -118,14 +117,12 @@ class TestApply:
         plan_run = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
-            timeout=300,
         )
         runner.assert_workflow_success(plan_run)
 
         apply_run = runner.post_and_wait(
             pr,
             ".apply to dev | -target=local_file.test",
-            timeout=300,
         )
 
         runner.assert_workflow_failure(apply_run)
@@ -148,7 +145,7 @@ class TestApply:
         """
         branch, pr, sha = runner.setup_test_pr("apply_no_plan")
         
-        run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        run = runner.post_and_wait(pr, ".apply to dev")
 
         runner.assert_workflow_failure(run)
         runner.assert_logs_contain(run.id, "No saved plan artifact found")
@@ -180,7 +177,6 @@ class TestApply:
         plan_a = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
-            timeout=300,
         )
         runner.assert_workflow_success(plan_a)
         runner.assert_plan_artifacts_exist("dev", sha)
@@ -190,12 +186,11 @@ class TestApply:
         plan_b = runner.post_and_wait(
             pr,
             ".plan to dev | -var=e2e_undeclared_guardrail_var=1",
-            timeout=300,
         )
         runner.assert_workflow_failure(plan_b)
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
 
-        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        apply_run = runner.post_and_wait(pr, ".apply to dev")
 
         runner.assert_workflow_failure(apply_run)
         runner.assert_logs_contain(apply_run.id, "did not produce an applyable plan")
@@ -224,11 +219,10 @@ class TestRollback:
         plan_run = runner.post_and_wait(
             pr,
             ".plan to dev | -target=local_file.test",
-            timeout=300,
         )
         runner.assert_workflow_success(plan_run)
 
-        run = runner.post_and_wait(pr, ".apply main to dev", timeout=300)
+        run = runner.post_and_wait(pr, ".apply main to dev")
 
         runner.assert_workflow_success(run)
         runner.assert_comment_contains(pr, "Deployment Results")
@@ -252,7 +246,6 @@ class TestRollback:
         run = runner.post_and_wait(
             pr,
             ".apply main to dev | -target=local_file.test",
-            timeout=300,
         )
 
         runner.assert_workflow_failure(run)

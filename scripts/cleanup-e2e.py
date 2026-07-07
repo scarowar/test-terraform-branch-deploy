@@ -276,7 +276,7 @@ def main():
         else:
             print("❌ (token may lack actions: write)")
 
-    print(f"\n✨ Cleanup complete!")
+    print("\n✨ Cleanup complete!")
 
 
 if __name__ == "__main__":

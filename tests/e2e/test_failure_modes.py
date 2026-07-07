@@ -13,7 +13,7 @@ from textwrap import dedent
 
 import pytest
 
-from tests.e2e.runner import E2ETestRunner
+from tests.e2e.runner import QUICK_TIMEOUT, E2ETestRunner
 
 
 @pytest.mark.e2e
@@ -32,7 +32,7 @@ class TestFailureModes:
         """
         branch, pr, sha = runner.setup_test_pr("invalid_env")
         
-        run = runner.post_and_wait(pr, ".plan to nonexistent", timeout=180)
+        runner.post_and_wait(pr, ".plan to nonexistent", timeout=QUICK_TIMEOUT)
         
         # branch-deploy should reject invalid environment
         runner.assert_comment_contains(pr, "No matching environment target found")
@@ -53,19 +53,19 @@ class TestFailureModes:
         branch, pr, sha = runner.setup_test_pr("stale_plan")
         
         # Plan
-        plan_run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        plan_run = runner.post_and_wait(pr, ".plan to dev")
         runner.assert_workflow_success(plan_run)
         
         # Push new commit (invalidates plan)
         runner.commit_file(
             branch=branch,
             path="terraform/dev/test.tfvars",
-            content=f"# Updated content\nmessage = \"updated\"",
+            content="# Updated content\nmessage = \"updated\"",
             message="chore: update content"
         )
         
         # Apply (should fail - SHA changed)
-        apply_run = runner.post_and_wait(pr, ".apply to dev", timeout=300)
+        apply_run = runner.post_and_wait(pr, ".apply to dev")
         
         runner.assert_workflow_failure(apply_run)
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
@@ -116,7 +116,7 @@ class TestFailureModes:
             message="test: add unsafe apply target config",
         )
 
-        run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+        run = runner.post_and_wait(pr, ".plan to dev")
 
         runner.assert_workflow_failure(run)
         runner.assert_comment_contains(pr, "Cannot proceed with deployment")
@@ -134,7 +134,7 @@ class TestFailureModes:
         """
         branch, pr, sha = runner.setup_test_pr("malformed")
         
-        run = runner.post_and_wait(pr, "This is just a regular comment", timeout=180)
+        run = runner.post_and_wait(pr, "This is just a regular comment", timeout=QUICK_TIMEOUT)
         assert run.is_complete
         
         # Should have no bot response for random comment
@@ -180,7 +180,7 @@ class TestTerraformErrors:
         pr = runner.create_pr(branch=branch, title="E2E: Init Failure")
         
         try:
-            run = runner.post_and_wait(pr, ".plan to dev", timeout=300)
+            run = runner.post_and_wait(pr, ".plan to dev")
             # Init should fail
             runner.assert_workflow_failure(run)
             runner.assert_comment_contains(pr, "Cannot proceed with deployment")
@@ -206,7 +206,7 @@ class TestSafetyChecks:
         
         # Attempt shell injection via -var
         malicious_cmd = ".plan to dev | -var='test=$(echo INJECTED)'"
-        run = runner.post_and_wait(pr, malicious_cmd, timeout=300)
+        runner.post_and_wait(pr, malicious_cmd)
         
         # Should complete (injection fails silently or is escaped)
         # The key test is that no actual shell command ran
@@ -224,7 +224,7 @@ class TestSafetyChecks:
         """
         branch, pr, sha = runner.setup_test_pr("help")
         
-        run = runner.post_and_wait(pr, ".help", timeout=180)
+        run = runner.post_and_wait(pr, ".help", timeout=QUICK_TIMEOUT)
         
         runner.assert_workflow_success(run)
         # Help should mention available commands

@@ -65,3 +65,4 @@ Thumbs.db
 .env.local
 *.pem
 *.key
+results/
