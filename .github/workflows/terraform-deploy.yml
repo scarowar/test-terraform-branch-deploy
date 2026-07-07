@@ -110,6 +110,12 @@ jobs:
         with:
           mode: trigger
           github-token: ${{ github.token }}
+          # This synthetic test repo intentionally allows direct pushes to
+          # main (the E2E suite maintains it that way), so branch-deploy's
+          # advisory ruleset warnings (missing pull_request /
+          # required_status_checks rules) do not apply here. Production
+          # workflows should keep the default (true).
+          use-security-warnings: "false"
 
       # ============================================================
       # CUSTOM STEPS GO HERE

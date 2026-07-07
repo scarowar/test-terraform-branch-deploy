@@ -217,6 +217,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.E2E_PAT }}
           TF_BRANCH_DEPLOY_REF: ${{ env.CANDIDATE_REF }}
+          # Attribute E2E commits to a real GitHub login so branch-deploy's
+          # committer safety check can resolve it (a synthetic email has no
+          # login and warns on every run - github/branch-deploy#379).
+          E2E_COMMIT_AUTHOR_NAME: scarowar
+          E2E_COMMIT_AUTHOR_EMAIL: 62673499+scarowar@users.noreply.github.com
         run: uv run python scripts/run-certification.py --live --cleanup-first --stage "${CERTIFICATION_STAGE}"
 
       - name: Mark E2E status complete
