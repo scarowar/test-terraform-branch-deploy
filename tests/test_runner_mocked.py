@@ -14,7 +14,12 @@ from typing import Any
 import httpx
 import pytest
 
-from tests.e2e.runner import E2ETestRunner, build_test_pr_body
+from tests.e2e.runner import (
+    E2E_COMMIT_AUTHOR_EMAIL,
+    E2E_COMMIT_AUTHOR_NAME,
+    E2ETestRunner,
+    build_test_pr_body,
+)
 
 
 REPO_PATH = "/repos/scarowar/test-terraform-branch-deploy"
@@ -143,8 +148,8 @@ def test_setup_test_pr_creates_branch_commit_and_pr_requests(
             assert payload["message"] == "test: mocked"
             assert payload["branch"].startswith("e2e-test-mocked-")
             assert payload["author"] == {
-                "name": "terraform-branch-deploy-e2e",
-                "email": "terraform-branch-deploy-e2e@example.invalid",
+                "name": E2E_COMMIT_AUTHOR_NAME,
+                "email": E2E_COMMIT_AUTHOR_EMAIL,
             }
             assert payload["committer"] == payload["author"]
             return response(request, 200, {"commit": {"sha": "commit-sha"}})
