@@ -1,12 +1,11 @@
-# terraform-branch-deploy configuration for E2E testing
-
 default-environment: dev
-
 production-environments:
   - prod
-
 stable-branch: main
-
+defaults:
+  plan-args:
+    args:
+      - "-parallelism=7"
 environments:
   dev:
     working-directory: ./terraform/dev
@@ -14,7 +13,6 @@ environments:
       paths:
         - ../common.tfvars
         - dev.tfvars
-
   prod:
     working-directory: ./terraform/prod
     var-files:
